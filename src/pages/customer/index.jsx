@@ -25,8 +25,7 @@ import {
   Heart,
   Share2,
   Clock,
-  BellRing,
-  Bell
+  BellRing
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
@@ -45,7 +44,6 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// ID fijo para Dulce Sal
 const appIdSaaS = "dulce-sal-app"; 
 const DULCE_SAL_ID = "dulce-sal-id";
 
@@ -74,8 +72,10 @@ export default function CustomerSection() {
   
   const [formData, setFormData] = useState({ name: '', phone: '' });
 
-  // ESTADO PARA NOTIFICACIONES PUSH
+  // ESTADO PARA NOTIFICACIONES Y DISPOSITIVO
   const [pushPermission, setPushPermission] = useState('default');
+  const [isIOS, setIsIOS] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -86,9 +86,20 @@ export default function CustomerSection() {
       }
     });
 
-    // Verificar si el navegador soporta notificaciones y su estado actual
-    if (typeof window !== 'undefined' && 'Notification' in window) {
-      setPushPermission(Notification.permission);
+    // Detectar entorno del navegador de forma segura
+    if (typeof window !== 'undefined') {
+      // 1. Detectar si es iPhone/iPad
+      const iosCheck = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+      setIsIOS(iosCheck);
+      
+      // 2. Detectar si está "Instalada" en la pantalla de inicio (PWA)
+      const standaloneCheck = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+      setIsStandalone(standaloneCheck);
+
+      // 3. Revisar permisos
+      if ('Notification' in window) {
+        setPushPermission(Notification.permission);
+      }
     }
 
     return () => unsubscribe();
@@ -141,7 +152,7 @@ export default function CustomerSection() {
         visits: 0,
         createdAt: new Date().toISOString(),
         lastVisit: null,
-        pushEnabled: false // Nuevo campo para saber si aceptó notificaciones
+        pushEnabled: false
       });
     } catch (err) {
       console.error("Error Registro:", err);
@@ -150,7 +161,6 @@ export default function CustomerSection() {
     }
   };
 
-  // FUNCIÓN PARA SOLICITAR PERMISOS PUSH AL NAVEGADOR DEL CLIENTE
   const requestPushPermission = async () => {
     if (!('Notification' in window)) {
       alert("Tu dispositivo actual no soporta notificaciones web.");
@@ -162,14 +172,12 @@ export default function CustomerSection() {
       setPushPermission(permission);
 
       if (permission === 'granted' && card) {
-        // Si acepta, actualizamos su tarjeta en la base de datos para marcarlo como suscrito
         const cardId = `${DULCE_SAL_ID}_${user.uid}`;
         const cardRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId);
         await updateDoc(cardRef, { pushEnabled: true });
 
-        // Mostrar una notificación de prueba local para confirmar que funcionó
-        new Notification("¡Gracias por suscribirte!", {
-          body: "Te avisaremos cuando tengas premios disponibles en Dulce Sal.",
+        new Notification("¡Suscripción exitosa!", {
+          body: "Te avisaremos de tus próximos premios en Dulce Sal.",
         });
       }
     } catch (error) {
@@ -195,7 +203,7 @@ export default function CustomerSection() {
           </div>
           <h1 className="text-4xl font-black text-slate-800 tracking-tighter mb-2">¡Hola!</h1>
           <p className="text-slate-400 font-medium mb-8 leading-relaxed">
-            Regístrate en <span className="text-indigo-600 font-bold">{business?.name || 'Dulce Sal'}</span> para empezar a ganar puntos y premios.
+            Regístrate en <span className="text-indigo-600 font-bold">{business?.name || 'Dulce Sal'}</span> para empezar a ganar premios.
           </p>
           
           <form onSubmit={handleRegister} className="space-y-5 text-left">
@@ -219,8 +227,6 @@ export default function CustomerSection() {
               {isRegistering ? 'Procesando...' : <><UserPlus size={20} className="mr-1" /> Crear Mi Tarjeta VIP</>}
             </Button>
           </form>
-          
-          <p className="mt-8 text-[9px] text-slate-300 font-bold uppercase tracking-[0.2em]">Escanea, Suma y Gana</p>
         </div>
       </div>
     );
@@ -230,7 +236,7 @@ export default function CustomerSection() {
     <div className="min-h-screen bg-slate-50 flex flex-col items-center pt-8 pb-32 px-4 font-sans selection:bg-indigo-100">
       <div className="w-full max-w-md">
         
-        {/* Cabecera del Local */}
+        {/* Cabecera */}
         <div className="flex items-center justify-between mb-8 px-2">
           <div className="flex items-center gap-4">
             <div className="bg-indigo-600 p-3 rounded-2xl shadow-lg shadow-indigo-100">
@@ -248,7 +254,7 @@ export default function CustomerSection() {
           </button>
         </div>
 
-        {/* Tarjeta Digital Premium */}
+        {/* Tarjeta VIP */}
         <div className="bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl text-white relative overflow-hidden mb-8">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none"></div>
           
@@ -281,29 +287,46 @@ export default function CustomerSection() {
               <p className="text-5xl font-black text-emerald-400 tabular-nums tracking-tighter">{card.visits}</p>
             </div>
           </div>
-          
-          <div className="mt-10 text-center pt-5 border-t border-white/5">
-            <p className="text-[9px] font-mono text-white/20 tracking-[0.5em] uppercase">Presenta este QR al pagar</p>
-          </div>
         </div>
 
-        {/* NUEVA SECCIÓN: PERMISO DE NOTIFICACIONES PUSH */}
+        {/* --- LÓGICA INTELIGENTE DE PERMISOS PUSH (iPHONE VS ANDROID/PC) --- */}
         {pushPermission === 'default' && (
           <div className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 mb-8 flex flex-col items-center text-center animate-in slide-in-from-bottom-4 shadow-sm">
             <div className="bg-white p-3 rounded-full text-indigo-600 mb-3 shadow-sm">
               <BellRing size={24} />
             </div>
             <h3 className="font-black text-indigo-900 mb-2">¡No te pierdas tus premios!</h3>
-            <p className="text-xs text-indigo-700/80 font-medium mb-4 leading-relaxed px-4">
-              Activa las notificaciones para que te avisemos cuando tengas promociones exclusivas en Dulce Sal.
-            </p>
-            <Button onClick={requestPushPermission} variant="primary" fullWidth className="py-3 shadow-indigo-200">
-              Permitir Notificaciones
-            </Button>
+            
+            {typeof window !== 'undefined' && !('Notification' in window) ? (
+              isIOS && !isStandalone ? (
+                /* INSTRUCCIONES PARA iPHONE */
+                <div className="text-xs text-indigo-700/80 font-medium leading-relaxed px-2 pb-2">
+                  <p className="mb-3">Para recibir notificaciones de premios, Apple requiere que instales esta app.</p>
+                  <p className="bg-white/60 p-4 rounded-2xl border border-indigo-200/50 shadow-sm">
+                    Toca el ícono <strong>Compartir</strong> en la barra inferior y luego <strong>"Agregar a inicio"</strong>. Luego ábrela desde tu pantalla principal.
+                  </p>
+                </div>
+              ) : (
+                /* FALLBACK NAVEGADOR SIN SOPORTE (Safari Mac Viejo, etc) */
+                <p className="text-xs text-indigo-700/80 font-medium mb-4 leading-relaxed px-4">
+                  Tu navegador actual no admite notificaciones web. Te recomendamos instalar la app o usar Chrome.
+                </p>
+              )
+            ) : (
+              /* BOTÓN NORMAL PARA ANDROID / CHROME / PWA iPHONE */
+              <>
+                <p className="text-xs text-indigo-700/80 font-medium mb-4 leading-relaxed px-4">
+                  Activa las notificaciones para que te avisemos cuando tengas promociones exclusivas.
+                </p>
+                <Button onClick={requestPushPermission} variant="primary" fullWidth className="py-3 shadow-indigo-200">
+                  Permitir Notificaciones
+                </Button>
+              </>
+            )}
           </div>
         )}
 
-        {/* Sección de Recompensas */}
+        {/* Recompensas */}
         <div className="px-2">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
@@ -312,16 +335,13 @@ export default function CustomerSection() {
               </div>
               <h3 className="text-xl font-black text-slate-800">Tus Premios</h3>
             </div>
-            <p className="text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1 rounded-full uppercase tracking-tighter">
-              {rewards.length} metas
-            </p>
           </div>
           
           <div className="space-y-4">
             {rewards.length === 0 ? (
               <div className="bg-white rounded-[2rem] p-12 border border-dashed border-slate-200 text-center">
                 <Smartphone size={32} className="text-slate-200 mx-auto mb-3" />
-                <p className="italic text-slate-400 text-sm">Próximamente más premios exclusivos.</p>
+                <p className="italic text-slate-400 text-sm">Próximamente premios exclusivos.</p>
               </div>
             ) : (
               rewards.map(r => {
@@ -331,9 +351,7 @@ export default function CustomerSection() {
 
                 return (
                   <div key={r.id} className={`p-6 rounded-[2.25rem] border transition-all duration-500 ${
-                    isUnlocked 
-                    ? 'bg-emerald-50 border-emerald-200 shadow-xl shadow-emerald-200/20 scale-[1.02]' 
-                    : 'bg-white border-slate-100 shadow-sm'
+                    isUnlocked ? 'bg-emerald-50 border-emerald-200 shadow-xl' : 'bg-white border-slate-100'
                   }`}>
                     <div className="flex justify-between items-start mb-4">
                       <div>
@@ -343,8 +361,8 @@ export default function CustomerSection() {
                         </p>
                       </div>
                       {isUnlocked ? (
-                        <div className="bg-emerald-500 text-white px-4 py-2 rounded-2xl flex items-center gap-1.5 shadow-lg shadow-emerald-200 animate-pulse">
-                          <CheckCircle2 size={14} /> <span className="text-[10px] font-black tracking-wider uppercase">¡Canjear!</span>
+                        <div className="bg-emerald-500 text-white px-4 py-2 rounded-2xl flex items-center gap-1.5 animate-pulse">
+                          <CheckCircle2 size={14} /> <span className="text-[10px] font-black uppercase">¡Canjear!</span>
                         </div>
                       ) : (
                         <span className="text-slate-800 text-xs font-black bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200/50">
@@ -352,20 +370,10 @@ export default function CustomerSection() {
                         </span>
                       )}
                     </div>
-                    
                     {!isUnlocked && (
                       <div className="relative w-full h-2.5 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                        <div 
-                          className="absolute top-0 left-0 h-full bg-indigo-500 transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(79,70,229,0.3)]" 
-                          style={{ width: `${pct}%` }}
-                        ></div>
+                        <div className="absolute top-0 left-0 h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${pct}%` }}></div>
                       </div>
-                    )}
-                    
-                    {isUnlocked && (
-                      <p className="text-[11px] text-emerald-700 font-bold mt-2 uppercase flex items-center gap-1">
-                        <CheckCircle2 size={12} /> Reclama tu premio en el mostrador
-                      </p>
                     )}
                   </div>
                 );
@@ -374,14 +382,8 @@ export default function CustomerSection() {
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="mt-16 text-center space-y-2 opacity-30">
-          <p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-400">
-            Dulce Sal Loyalty System
-          </p>
-          <p className="text-[8px] font-mono text-slate-300">
-            UID: {user.uid}
-          </p>
+        <div className="mt-16 text-center opacity-30">
+          <p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-400">Dulce Sal Loyalty</p>
         </div>
       </div>
 
