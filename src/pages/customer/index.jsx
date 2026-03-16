@@ -7,7 +7,6 @@ import {
   where, 
   onSnapshot, 
   doc, 
-  getDoc,
   setDoc 
 } from 'firebase/firestore';
 import { 
@@ -29,16 +28,14 @@ import {
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' 
-  ? JSON.parse(__firebase_config) 
-  : {
-      apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
-      authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
-      projectId: "fidelizacionapp-d3e8e",
-      storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
-      messagingSenderId: "86470097031",
-      appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
-    };
+const firebaseConfig = {
+  apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
+  authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
+  projectId: "fidelizacionapp-d3e8e",
+  storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
+  messagingSenderId: "86470097031",
+  appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
+};
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
@@ -174,7 +171,10 @@ export default function CustomerSection() {
       if (permission === 'granted' && card) {
         const cardId = `${DULCE_SAL_ID}_${user.uid}`;
         const cardRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId);
-        await updateDoc(cardRef, { pushEnabled: true });
+        
+        // Aquí no usamos updateDoc para evitar importar librerías extra si no es necesario,
+        // re-guardamos usando setDoc con merge
+        await setDoc(cardRef, { pushEnabled: true }, { merge: true });
 
         new Notification("¡Suscripción exitosa!", {
           body: "Te avisaremos de tus próximos premios en Dulce Sal.",
@@ -289,7 +289,7 @@ export default function CustomerSection() {
           </div>
         </div>
 
-        {/* --- LÓGICA INTELIGENTE DE PERMISOS PUSH (iPHONE VS ANDROID/PC) --- */}
+        {/* --- LÓGICA INTELIGENTE DE PERMISOS PUSH --- */}
         {pushPermission === 'default' && (
           <div className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 mb-8 flex flex-col items-center text-center animate-in slide-in-from-bottom-4 shadow-sm">
             <div className="bg-white p-3 rounded-full text-indigo-600 mb-3 shadow-sm">
@@ -299,7 +299,6 @@ export default function CustomerSection() {
             
             {typeof window !== 'undefined' && !('Notification' in window) ? (
               isIOS && !isStandalone ? (
-                /* INSTRUCCIONES PARA iPHONE */
                 <div className="text-xs text-indigo-700/80 font-medium leading-relaxed px-2 pb-2">
                   <p className="mb-3">Para recibir notificaciones de premios, Apple requiere que instales esta app.</p>
                   <p className="bg-white/60 p-4 rounded-2xl border border-indigo-200/50 shadow-sm">
@@ -307,13 +306,11 @@ export default function CustomerSection() {
                   </p>
                 </div>
               ) : (
-                /* FALLBACK NAVEGADOR SIN SOPORTE (Safari Mac Viejo, etc) */
                 <p className="text-xs text-indigo-700/80 font-medium mb-4 leading-relaxed px-4">
-                  Tu navegador actual no admite notificaciones web. Te recomendamos instalar la app o usar Chrome.
+                  Tu navegador actual no admite notificaciones web. Te recomendamos usar Chrome o instalar la app.
                 </p>
               )
             ) : (
-              /* BOTÓN NORMAL PARA ANDROID / CHROME / PWA iPHONE */
               <>
                 <p className="text-xs text-indigo-700/80 font-medium mb-4 leading-relaxed px-4">
                   Activa las notificaciones para que te avisemos cuando tengas promociones exclusivas.
