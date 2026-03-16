@@ -2,8 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { 
   getFirestore, 
   collection, 
-  query, 
-  where, 
   onSnapshot, 
   doc 
 } from 'firebase/firestore';
@@ -24,10 +22,11 @@ import {
   Calendar,
   ChevronRight,
   Search,
-  Filter
+  Filter,
+  Bell
 } from 'lucide-react';
 
-// --- CONFIGURACIÓN DE FIREBASE (Consolidada para evitar errores de importación) ---
+// --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
   authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
@@ -41,11 +40,9 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Identificadores del SaaS para Dulce Sal
+// Identificadores fijos para Dulce Sal
 const appIdSaaS = "dulce-sal-app"; 
-const DULCE_SAL_ID = "dulce-sal-main-id";
-
-// --- COMPONENTES UI INTERNOS ---
+const DULCE_SAL_ID = "dulce-sal-id"; 
 
 const StatCard = ({ title, value, icon, color = "indigo", subtitle }) => (
   <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300 group">
@@ -64,10 +61,6 @@ const StatCard = ({ title, value, icon, color = "indigo", subtitle }) => (
   </div>
 );
 
-/**
- * AdminDashboard: El centro de comando de Dulce Sal.
- * Permite gestionar clientes, ver métricas y controlar el programa de fidelización.
- */
 export default function AdminDashboard() {
   const [user, setUser] = useState(null);
   const [business, setBusiness] = useState(null);
@@ -75,23 +68,22 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
 
-  // 1. Gestión de Sesión
+  // 1. Verificación de sesión activa
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser) {
-        // Redirigir al portal si no hay sesión activa
         window.location.href = '/';
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // 2. Carga de Datos (Suscripción en Tiempo Real)
+  // 2. Carga de datos del negocio y clientes
   useEffect(() => {
     if (!user) return;
 
-    // A. Info del Negocio Único
+    // A. Info del negocio
     const businessRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'businesses', DULCE_SAL_ID);
     const unsubBusiness = onSnapshot(businessRef, (snap) => {
       if (snap.exists()) {
@@ -99,13 +91,15 @@ export default function AdminDashboard() {
       }
     });
 
-    // B. Lista de Clientes con Tarjeta en Dulce Sal
+    // B. Lista de clientes
     const customersRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards');
-    const q = query(customersRef, where('businessId', '==', DULCE_SAL_ID));
 
-    const unsubCustomers = onSnapshot(q, (snap) => {
-      const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Ordenamos: Los registros más recientes primero
+    const unsubCustomers = onSnapshot(customersRef, (snap) => {
+      // Filtrado para cumplir con las reglas de firebase en este entorno
+      const list = snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(c => c.businessId === DULCE_SAL_ID);
+        
       setCustomers(list.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
       setLoading(false);
     }, (err) => {
@@ -124,7 +118,6 @@ export default function AdminDashboard() {
     window.location.href = '/';
   };
 
-  // Filtrado de búsqueda
   const filteredCustomers = customers.filter(c => 
     c.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.customerPhone?.includes(searchTerm)
@@ -153,19 +146,35 @@ export default function AdminDashboard() {
         </div>
         
         <nav className="space-y-3 flex-1">
-          <button className="w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] bg-indigo-600 text-white font-bold text-sm shadow-xl shadow-indigo-100 transition-all">
+          <button 
+            onClick={() => window.location.href = '/admin'}
+            className="w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] bg-indigo-600 text-white font-bold text-sm shadow-xl shadow-indigo-100 transition-all"
+          >
             <div className="flex items-center gap-3">
               <LayoutDashboard size={18} /> Dashboard
             </div>
             <ChevronRight size={14} className="opacity-50" />
           </button>
           
-          <button className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group">
+          <button 
+            onClick={() => window.location.href = '/admin/customers'}
+            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group"
+          >
             <Users size={18} className="group-hover:text-indigo-500" /> Clientes
           </button>
           
-          <button className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group">
+          <button 
+            onClick={() => window.location.href = '/admin/rewards'}
+            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group"
+          >
             <Award size={18} className="group-hover:text-amber-500" /> Configurar Premios
+          </button>
+
+          <button 
+            onClick={() => window.location.href = '/admin/campaigns'}
+            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group"
+          >
+            <Bell size={18} className="group-hover:text-pink-500" /> Campañas Push
           </button>
         </nav>
 
@@ -187,7 +196,6 @@ export default function AdminDashboard() {
       <main className="flex-1 p-6 lg:p-12 overflow-y-auto">
         <div className="max-w-6xl mx-auto">
           
-          {/* Header Mobile/Desktop */}
           <header className="flex flex-col md:flex-row justify-between md:items-center gap-6 mb-12">
             <div>
               <div className="flex items-center gap-2 text-indigo-600 mb-2">
@@ -207,13 +215,15 @@ export default function AdminDashboard() {
               >
                 Ver Portal Público
               </button>
-              <button className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl hover:bg-black transition-all flex items-center gap-2 active:scale-95">
+              <button 
+                onClick={() => window.location.href = '/admin/scan'}
+                className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl hover:bg-black transition-all flex items-center gap-2 active:scale-95"
+              >
                 <QrCode size={18} /> Escanear Cliente
               </button>
             </div>
           </header>
 
-          {/* Grilla de Métricas */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
             <StatCard 
               title="Comunidad Dulce Sal" 
@@ -238,7 +248,6 @@ export default function AdminDashboard() {
             />
           </div>
 
-          {/* Sección de Tabla de Clientes */}
           <section className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/40 overflow-hidden">
             <div className="p-10 border-b border-slate-50 flex flex-col md:flex-row justify-between items-md-center gap-6">
               <div>
@@ -300,15 +309,15 @@ export default function AdminDashboard() {
                         </div>
                       </td>
                       <td className="px-10 py-6">
-                        <a href={`https://wa.me/${c.customerPhone}`} className="text-sm text-slate-600 font-bold hover:text-emerald-500 transition-colors flex items-center gap-1">
+                        <a href={`https://wa.me/${c.customerPhone}`} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-600 font-bold hover:text-emerald-500 transition-colors flex items-center gap-1">
                           {c.customerPhone}
                         </a>
                       </td>
                       <td className="px-10 py-6 text-center">
                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
-                          (c.visits || 0) > 10 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'
+                          (c.visits || 0) >= 10 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'
                         }`}>
-                          {(c.visits || 0) > 10 ? 'VIP Platinum' : 'Socio Base'}
+                          {(c.visits || 0) >= 10 ? 'VIP Platinum' : 'Socio Base'}
                         </span>
                       </td>
                       <td className="px-10 py-6 text-center">
