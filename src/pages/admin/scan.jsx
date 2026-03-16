@@ -1,163 +1,174 @@
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { collection, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
-import { BarChart3, QrCode, Users, Award, Bell, CheckCircle2, AlertCircle } from 'lucide-react';
-import { db } from '../../services/firebase';
-import { useAuth } from '../../hooks/useAuth';
-import AdminLayout from '../../components/layouts/AdminLayout';
-import Input from '../../components/ui/Input';
-import Button from '../../components/ui/Button';
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  updateDoc 
+} from 'firebase/firestore';
+import { 
+  getAuth, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { 
+  QrCode, 
+  CheckCircle2, 
+  AlertCircle,
+  ArrowLeft
+} from 'lucide-react';
 
-/**
- * Página para Escanear QR y validar visitas (Ruta: /admin/scan)
- * Permite al negocio registrar una nueva visita de un cliente y sumarle puntos.
- */
+// --- CONFIGURACIÓN DE FIREBASE ---
+const firebaseConfig = {
+  apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
+  authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
+  projectId: "fidelizacionapp-d3e8e",
+  storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
+  messagingSenderId: "86470097031",
+  appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
+};
+
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+// Identificadores fijos para Dulce Sal
+const appIdSaaS = "dulce-sal-app"; 
+const DULCE_SAL_ID = "dulce-sal-id"; 
+
 export default function ScanPage() {
-  const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  
-  const [business, setBusiness] = useState(null);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [scannedId, setScannedId] = useState('');
-  const [status, setStatus] = useState({ type: '', message: '' }); // type: 'success' | 'error' | 'loading'
+  const [status, setStatus] = useState({ type: '', message: '' });
 
-  // Proteger la ruta
+  // 1. Proteger la ruta
   useEffect(() => {
-    if (!authLoading && !user) router.push('/');
-  }, [user, authLoading, router]);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) window.location.href = '/';
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // Cargar los datos del negocio actual
-  useEffect(() => {
-    if (!user) return;
-    const fetchBusiness = async () => {
-      const q = query(collection(db, 'businesses'), where('ownerId', '==', user.uid));
-      const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) {
-        setBusiness({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() });
-      }
-    };
-    fetchBusiness();
-  }, [user]);
-
-  // Configuración del menú lateral
-  const navItems = [
-    { label: 'Dashboard', icon: <BarChart3 />, path: '/admin', onClick: () => router.push('/admin') },
-    { label: 'Escanear QR', icon: <QrCode />, path: '/admin/scan', onClick: () => router.push('/admin/scan') },
-    { label: 'Clientes', icon: <Users />, path: '/admin/customers', onClick: () => router.push('/admin/customers') },
-    { label: 'Recompensas', icon: <Award />, path: '/admin/rewards', onClick: () => router.push('/admin/rewards') },
-    { label: 'Campañas Push', icon: <Bell />, path: '/admin/campaigns', onClick: () => router.push('/admin/campaigns') },
-  ];
-
-  // Función principal: Validar el escaneo
+  // 2. Función Principal: Validar Tarjeta y Sumar Puntos
   const handleScan = async (e) => {
     e.preventDefault();
-    if (!scannedId.trim() || !business) return;
+    if (!scannedId.trim()) return;
 
-    setStatus({ type: 'loading', message: 'Validando tarjeta...' });
+    setStatus({ type: 'loading', message: 'Validando identidad del cliente...' });
 
     try {
-      // Buscar la tarjeta de fidelidad que coincida con el negocio actual y el ID del cliente
-      const cardQuery = query(
-        collection(db, 'loyalty_cards'),
-        where('businessId', '==', business.id),
-        where('customerId', '==', scannedId.trim())
-      );
+      // Formamos el ID de la tarjeta exacto según la regla (negocio_cliente)
+      const cardId = `${DULCE_SAL_ID}_${scannedId.trim()}`;
       
-      const querySnapshot = await getDocs(cardQuery);
+      // Apuntamos directamente a la ruta segura que autoriza Firebase Canvas
+      const cardRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId);
+      const cardSnap = await getDoc(cardRef);
 
-      if (querySnapshot.empty) {
+      if (!cardSnap.exists()) {
         setStatus({ 
           type: 'error', 
-          message: 'Cliente no encontrado o no está registrado en tu programa de fidelización.' 
+          message: 'Error: El ID ingresado no corresponde a ningún cliente registrado en Dulce Sal.' 
         });
         return;
       }
 
-      // Obtener el documento de la tarjeta
-      const cardDoc = querySnapshot.docs[0];
-      const cardData = cardDoc.data();
+      const cardData = cardSnap.data();
+      const pointsToEarn = 10; // Puntos fijos otorgados por visita
 
-      // Puntos a sumar por visita (Configurable en el futuro)
-      const pointsToEarn = 10; 
-
-      // Actualizar la base de datos
-      const cardRef = doc(db, 'loyalty_cards', cardDoc.id);
+      // Actualizar tarjeta
       await updateDoc(cardRef, {
-        visits: cardData.visits + 1,
-        points: cardData.points + pointsToEarn,
+        visits: (cardData.visits || 0) + 1,
+        points: (cardData.points || 0) + pointsToEarn,
         lastVisit: new Date().toISOString()
       });
 
-      // Mostrar éxito y limpiar el input
       setStatus({ 
         type: 'success', 
-        message: `¡Visita registrada con éxito! ${cardData.customerName} ahora tiene ${cardData.visits + 1} visitas y ${cardData.points + pointsToEarn} puntos.` 
+        message: `¡Visita registrada! ${cardData.customerName} tiene ahora ${(cardData.visits || 0) + 1} visitas.` 
       });
-      setScannedId('');
+      
+      setScannedId(''); // Limpiar input para el siguiente cliente
 
     } catch (error) {
-      console.error("Error al validar QR:", error);
-      setStatus({ type: 'error', message: 'Ocurrió un error al procesar la visita. Intenta nuevamente.' });
+      console.error("Error validando QR:", error);
+      setStatus({ 
+        type: 'error', 
+        message: 'Ocurrió un error de conexión o permisos. Asegúrate de estar ingresando el ID correcto.' 
+      });
     }
   };
 
-  if (authLoading || !business) return null;
+  if (loading) return null;
 
   return (
-    <AdminLayout 
-      businessName={business.name} 
-      navItems={navItems} 
-      activePath="/admin/scan"
-    >
-      <div className="max-w-2xl mx-auto space-y-8">
-        
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      
+      <header className="bg-white border-b border-slate-100 p-6 flex items-center gap-4 sticky top-0">
+        <button 
+          onClick={() => window.location.href = '/admin'}
+          className="p-2 hover:bg-slate-50 text-slate-400 hover:text-indigo-600 rounded-xl transition-colors"
+        >
+          <ArrowLeft size={24} />
+        </button>
         <div>
-          <h1 className="text-3xl font-bold text-slate-800">Escanear Tarjeta</h1>
-          <p className="text-slate-500 mt-1">Registra las visitas de tus clientes para otorgarles puntos.</p>
+          <h1 className="text-xl font-black text-slate-800 tracking-tight">Escanear Tarjeta</h1>
+          <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Dulce Sal Loyalty</p>
         </div>
+      </header>
 
-        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200">
-          <div className="flex justify-center mb-8">
-            <div className="bg-indigo-50 p-6 rounded-3xl">
-              <QrCode size={80} className="text-indigo-600" />
-            </div>
+      <main className="flex-1 flex flex-col items-center justify-center p-6">
+        <div className="bg-white w-full max-w-md p-10 rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 text-center animate-in zoom-in duration-500">
+          
+          <div className="bg-indigo-50 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-8 shadow-inner">
+            <QrCode size={40} className="text-indigo-600" />
           </div>
 
-          <form onSubmit={handleScan} className="space-y-6">
-            <Input
-              label="ID del Cliente (Simulador de Escáner)"
-              id="scannedId"
-              placeholder="Ingresa el ID que aparece bajo el QR del cliente..."
-              value={scannedId}
-              onChange={(e) => setScannedId(e.target.value)}
-              required
-            />
+          <h2 className="text-2xl font-black text-slate-900 mb-2">Simulador de Escáner</h2>
+          <p className="text-slate-500 text-sm font-medium mb-8 leading-relaxed">
+            Ingresa el <strong>UID</strong> que aparece en la tarjeta digital del cliente para registrar su visita y sumarle puntos.
+          </p>
 
-            <Button 
+          <form onSubmit={handleScan} className="space-y-6">
+            <div className="text-left">
+              <label className="text-[10px] font-black uppercase text-slate-400 ml-2 tracking-widest">ID de Cliente</label>
+              <input
+                type="text"
+                placeholder="Pega el código aquí..."
+                className="w-full mt-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-mono text-slate-700"
+                value={scannedId}
+                onChange={(e) => setScannedId(e.target.value)}
+                required
+              />
+            </div>
+
+            <button 
               type="submit" 
-              fullWidth 
               disabled={status.type === 'loading'}
+              className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50"
             >
-              {status.type === 'loading' ? 'Validando...' : 'Registrar Visita'}
-            </Button>
+              {status.type === 'loading' ? 'Validando...' : 'Sumar Puntos al Cliente'}
+            </button>
           </form>
 
-          {/* Mensajes de Feedback */}
+          {/* Feedback Visual */}
           {status.message && (
-            <div className={`mt-6 p-4 rounded-xl flex items-start gap-3 border ${
-              status.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 
+            <div className={`mt-8 p-5 rounded-2xl flex items-start gap-3 border text-left animate-in slide-in-from-bottom-4 ${
+              status.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800 shadow-lg shadow-emerald-100/50' : 
               status.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 'hidden'
             }`}>
               {status.type === 'success' ? (
-                <CheckCircle2 className="shrink-0 mt-0.5" size={20} />
+                <CheckCircle2 className="shrink-0 mt-0.5 text-emerald-500" size={20} />
               ) : (
-                <AlertCircle className="shrink-0 mt-0.5" size={20} />
+                <AlertCircle className="shrink-0 mt-0.5 text-red-500" size={20} />
               )}
-              <p className="font-medium text-sm">{status.message}</p>
+              <p className="font-bold text-sm leading-relaxed">{status.message}</p>
             </div>
           )}
         </div>
-        
-      </div>
-    </AdminLayout>
+      </main>
+      
+    </div>
   );
 }
