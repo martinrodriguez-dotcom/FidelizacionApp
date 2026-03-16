@@ -1,229 +1,204 @@
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/router';
-import { collection, query, where, getDocs, addDoc, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
-import { BarChart3, QrCode, Users, Award, Bell, Plus, Trash2, Gift } from 'lucide-react';
-import { db } from '../../services/firebase';
-import { useAuth } from '../../hooks/useAuth';
-import AdminLayout from '../../components/layouts/AdminLayout';
-import Button from '../../components/ui/Button';
-import Input from '../../components/ui/Input';
+import { collection, onSnapshot, doc, addDoc, deleteDoc } from 'firebase/firestore';
+import { Award, Plus, Trash2, ArrowLeft, Gift } from 'lucide-react';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getFirestore } from 'firebase/firestore';
 
-/**
- * Página de Gestión de Recompensas (Ruta: /admin/rewards)
- * Permite al negocio crear y eliminar reglas de recompensas para sus clientes.
- */
+// --- CONFIGURACIÓN FIREBASE ---
+const firebaseConfig = {
+  apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
+  authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
+  projectId: "fidelizacionapp-d3e8e",
+  storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
+  messagingSenderId: "86470097031",
+  appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
+};
+
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const auth = getAuth(app);
+const db = getFirestore(app);
+
+const appIdSaaS = "dulce-sal-app"; 
+const DULCE_SAL_ID = "dulce-sal-id";
+
 export default function RewardsPage() {
-  const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  
-  const [business, setBusiness] = useState(null);
+  const [user, setUser] = useState(null);
   const [rewards, setRewards] = useState([]);
-  const [loadingData, setLoadingData] = useState(true);
+  const [loading, setLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formData, setFormData] = useState({ title: '', conditionType: 'points', conditionValue: 100 });
 
-  // Estado del formulario para nueva recompensa
-  const [formData, setFormData] = useState({
-    title: '',
-    conditionType: 'visits', // 'visits' o 'points'
-    conditionValue: 10
-  });
-
-  // Proteger la ruta
   useEffect(() => {
-    if (!authLoading && !user) router.push('/');
-  }, [user, authLoading, router]);
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (!currentUser) window.location.href = '/';
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // Cargar negocio y suscribirse a la colección de recompensas
   useEffect(() => {
     if (!user) return;
 
-    const fetchBusinessAndRewards = async () => {
-      try {
-        // 1. Obtener el negocio del usuario actual
-        const q = query(collection(db, 'businesses'), where('ownerId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        
-        if (!querySnapshot.empty) {
-          const businessData = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() };
-          setBusiness(businessData);
+    const rewardsRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'rewards');
+    const unsubscribe = onSnapshot(rewardsRef, (snap) => {
+      const list = snap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(r => r.businessId === DULCE_SAL_ID);
+      
+      // Ordenar por el valor requerido para que las metas más bajas salgan primero
+      setRewards(list.sort((a,b) => a.conditionValue - b.conditionValue));
+      setLoading(false);
+    });
 
-          // 2. Escuchar en tiempo real las recompensas de este negocio
-          const rewardsQuery = query(
-            collection(db, 'rewards'),
-            where('businessId', '==', businessData.id)
-          );
-
-          const unsubscribe = onSnapshot(rewardsQuery, (snapshot) => {
-            const rewardsList = snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            }));
-            setRewards(rewardsList);
-            setLoadingData(false);
-          });
-
-          return () => unsubscribe();
-        } else {
-          setLoadingData(false);
-        }
-      } catch (error) {
-        console.error("Error cargando recompensas:", error);
-        setLoadingData(false);
-      }
-    };
-
-    fetchBusinessAndRewards();
+    return () => unsubscribe();
   }, [user]);
 
-  // Configuración del menú lateral
-  const navItems = [
-    { label: 'Dashboard', icon: <BarChart3 />, path: '/admin', onClick: () => router.push('/admin') },
-    { label: 'Escanear QR', icon: <QrCode />, path: '/admin/scan', onClick: () => router.push('/admin/scan') },
-    { label: 'Clientes', icon: <Users />, path: '/admin/customers', onClick: () => router.push('/admin/customers') },
-    { label: 'Recompensas', icon: <Award />, path: '/admin/rewards', onClick: () => router.push('/admin/rewards') },
-    { label: 'Campañas Push', icon: <Bell />, path: '/admin/campaigns', onClick: () => router.push('/admin/campaigns') },
-  ];
-
-  // Manejar la creación de una nueva recompensa
   const handleAddReward = async (e) => {
     e.preventDefault();
-    if (!business || !formData.title.trim() || formData.conditionValue <= 0) return;
-
+    if (!formData.title.trim() || formData.conditionValue <= 0) return;
     setIsSubmitting(true);
+    
     try {
-      await addDoc(collection(db, 'rewards'), {
-        businessId: business.id,
+      await addDoc(collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'rewards'), {
+        businessId: DULCE_SAL_ID,
         title: formData.title,
         conditionType: formData.conditionType,
         conditionValue: parseInt(formData.conditionValue),
         createdAt: new Date().toISOString()
       });
-
-      // Limpiar formulario tras guardar
-      setFormData({ title: '', conditionType: 'visits', conditionValue: 10 });
+      
+      setFormData({ title: '', conditionType: 'points', conditionValue: 100 });
     } catch (error) {
-      console.error("Error al crear recompensa:", error);
-      alert("Hubo un error al guardar la recompensa.");
+      console.error("Error al guardar recompensa:", error);
+      alert("Error al guardar recompensa.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Manejar la eliminación de una recompensa
-  const handleDeleteReward = async (rewardId) => {
-    if (!window.confirm("¿Estás seguro de que deseas eliminar esta recompensa?")) return;
+  const handleDeleteReward = async (id) => {
+    if (!window.confirm("¿Eliminar este premio definitivamente?")) return;
     
     try {
-      await deleteDoc(doc(db, 'rewards', rewardId));
+      await deleteDoc(doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'rewards', id));
     } catch (error) {
-      console.error("Error al eliminar recompensa:", error);
-      alert("Hubo un error al eliminar la recompensa.");
+      console.error("Error al eliminar:", error);
+      alert("Hubo un error al eliminar el premio.");
     }
   };
 
-  if (authLoading || loadingData) return null;
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+      <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+    </div>
+  );
 
   return (
-    <AdminLayout 
-      businessName={business?.name} 
-      navItems={navItems} 
-      activePath="/admin/rewards"
-    >
-      <div className="space-y-8 max-w-4xl">
+    <div className="min-h-screen bg-slate-50 font-sans p-6 md:p-12">
+      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-10">
         
-        <div>
-          <h1 className="text-3xl font-bold text-slate-800">Reglas de Recompensas</h1>
-          <p className="text-slate-500 mt-1">Configura qué premios obtienen tus clientes al alcanzar ciertas metas.</p>
+        {/* Cabecera */}
+        <div className="lg:col-span-3 flex items-center gap-4 mb-4">
+          <button onClick={() => window.location.href = '/admin'} className="p-3 bg-white rounded-2xl shadow-sm text-slate-400 hover:text-indigo-600 transition-colors">
+            <ArrowLeft size={24} />
+          </button>
+          <div>
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">Catálogo de Premios</h1>
+            <p className="text-slate-500 font-medium">Define las metas que motivarán a tus clientes a volver a Dulce Sal.</p>
+          </div>
         </div>
 
-        {/* Formulario para agregar nueva recompensa */}
-        <div className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-slate-200">
-          <h2 className="text-xl font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <Plus className="text-indigo-600" /> Crear Nueva Recompensa
-          </h2>
-          
-          <form onSubmit={handleAddReward} className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
-            <div className="md:col-span-5">
-              <Input
-                label="Premio o Beneficio"
-                id="title"
-                placeholder="Ej: Un café americano gratis"
-                value={formData.title}
-                onChange={(e) => setFormData({...formData, title: e.target.value})}
-                required
-              />
+        {/* Panel Formulario */}
+        <div className="lg:col-span-1">
+          <div className="bg-white p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/40 border border-slate-100 sticky top-10">
+            <div className="w-16 h-16 bg-amber-50 rounded-2xl flex items-center justify-center mb-6">
+              <Gift className="text-amber-500" size={32} />
             </div>
+            <h2 className="text-xl font-black text-slate-800 mb-6">Nuevo Premio</h2>
             
-            <div className="md:col-span-3">
-              <label className="block text-sm font-medium text-slate-700 mb-1.5">Condición de Desbloqueo</label>
-              <select 
-                className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all text-slate-800"
-                value={formData.conditionType}
-                onChange={(e) => setFormData({...formData, conditionType: e.target.value})}
+            <form onSubmit={handleAddReward} className="space-y-5">
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Premio a entregar</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej: Docena de Facturas Gratis" 
+                  className="w-full mt-1 p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" 
+                  value={formData.title} 
+                  onChange={e => setFormData({...formData, title: e.target.value})} 
+                  required 
+                />
+              </div>
+              
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Tipo de Meta</label>
+                <select 
+                  className="w-full mt-1 p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" 
+                  value={formData.conditionType} 
+                  onChange={e => setFormData({...formData, conditionType: e.target.value})}
+                >
+                  <option value="points">Puntos Acumulados</option>
+                  <option value="visits">Cantidad de Visitas</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Meta Requerida</label>
+                <input 
+                  type="number" 
+                  min="1" 
+                  className="w-full mt-1 p-4 bg-slate-50 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-bold" 
+                  value={formData.conditionValue} 
+                  onChange={e => setFormData({...formData, conditionValue: e.target.value})} 
+                  required 
+                />
+              </div>
+              
+              <button 
+                type="submit" 
+                disabled={isSubmitting} 
+                className="w-full bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-lg hover:bg-indigo-700 flex items-center justify-center gap-2 disabled:opacity-50 transition-all active:scale-95"
               >
-                <option value="visits">Cantidad de Visitas</option>
-                <option value="points">Puntos Acumulados</option>
-              </select>
-            </div>
-
-            <div className="md:col-span-2">
-              <Input
-                label="Meta requerida"
-                id="conditionValue"
-                type="number"
-                min="1"
-                value={formData.conditionValue}
-                onChange={(e) => setFormData({...formData, conditionValue: e.target.value})}
-                required
-              />
-            </div>
-
-            <div className="md:col-span-2 pb-0.5">
-              <Button type="submit" fullWidth disabled={isSubmitting}>
-                Añadir
-              </Button>
-            </div>
-          </form>
+                {isSubmitting ? 'Guardando...' : <><Plus size={20} /> Añadir al Catálogo</>}
+              </button>
+            </form>
+          </div>
         </div>
 
-        {/* Lista de Recompensas Activas */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-bold text-slate-800">Recompensas Activas ({rewards.length})</h3>
-          
+        {/* Lista de Premios */}
+        <div className="lg:col-span-2 space-y-4">
           {rewards.length === 0 ? (
-            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-8 text-center">
-              <Gift size={48} className="text-slate-300 mx-auto mb-3" />
-              <p className="text-slate-500 font-medium">No tienes recompensas configuradas.</p>
-              <p className="text-sm text-slate-400 mt-1">Tus clientes no tendrán metas que alcanzar.</p>
+            <div className="bg-white rounded-[2.5rem] p-16 text-center border border-dashed border-slate-200">
+              <Award className="mx-auto text-slate-200 mb-4" size={48} />
+              <p className="text-slate-400 font-medium italic">Aún no has configurado ningún premio para tus clientes.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {rewards.map(reward => (
-                <div key={reward.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 flex justify-between items-start group hover:border-indigo-200 transition-colors">
+            rewards.map(reward => (
+              <div key={reward.id} className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-shadow">
+                <div className="flex items-center gap-5">
+                  <div className="bg-indigo-50 w-16 h-16 rounded-2xl flex items-center justify-center shrink-0">
+                    <Award className="text-indigo-600" size={24} />
+                  </div>
                   <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Award size={18} className="text-amber-500" />
-                      <h4 className="font-bold text-lg text-slate-800 leading-tight">{reward.title}</h4>
-                    </div>
-                    <p className="text-slate-500 text-sm flex items-center gap-1.5">
-                      <span className="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-                      Se desbloquea al alcanzar <strong className="text-slate-700">{reward.conditionValue}</strong> {reward.conditionType === 'visits' ? 'visitas' : 'puntos'}.
+                    <h3 className="text-xl font-black text-slate-800">{reward.title}</h3>
+                    <p className="text-[11px] font-black uppercase tracking-widest text-slate-400 mt-1">
+                      Requiere: <span className={reward.conditionType === 'visits' ? 'text-emerald-500' : 'text-amber-500'}>{reward.conditionValue} {reward.conditionType === 'visits' ? 'Visitas' : 'Puntos'}</span>
                     </p>
                   </div>
-                  <button 
-                    onClick={() => handleDeleteReward(reward.id)} 
-                    className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                    title="Eliminar recompensa"
-                  >
-                    <Trash2 size={20} />
-                  </button>
                 </div>
-              ))}
-            </div>
+                <button 
+                  onClick={() => handleDeleteReward(reward.id)} 
+                  className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-500 hover:text-white transition-colors"
+                  title="Eliminar Premio"
+                >
+                  <Trash2 size={20} />
+                </button>
+              </div>
+            ))
           )}
         </div>
 
       </div>
-    </AdminLayout>
+    </div>
   );
 }
