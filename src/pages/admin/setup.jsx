@@ -1,175 +1,265 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
-import { getFirestore, collection, onSnapshot, query } from 'firebase/firestore';
-import { Store, User, LayoutDashboard } from 'lucide-react';
+import { 
+  getAuth, 
+  createUserWithEmailAndPassword, 
+  onAuthStateChanged 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  doc, 
+  setDoc 
+} from 'firebase/firestore';
+import { 
+  Store, 
+  MapPin, 
+  Sparkles, 
+  Download, 
+  CheckCircle2 
+} from 'lucide-react';
 
-// --- FIREBASE CONFIGURATION ---
+// --- CONFIGURACIÓN DE FIREBASE (Consolidada para evitar errores de importación) ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' 
   ? JSON.parse(__firebase_config) 
   : {
-      apiKey: "",
-      authDomain: "",
-      projectId: "",
-      storageBucket: "",
-      messagingSenderId: "",
-      appId: ""
+      apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
+      authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
+      projectId: "fidelizacionapp-d3e8e",
+      storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
+      messagingSenderId: "86470097031",
+      appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
     };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'dulce-app-fidelizacion';
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'dulce-sal-app';
 
-/**
- * App.jsx: White-label version for "Dulce App"
- * Focuses on a single business identity and simplifies the user flow.
- */
-export default function App() {
+// --- COMPONENTES UI (Inlined) ---
+const Input = ({ label, type = "text", placeholder, value, onChange, required = false, step = "any" }) => (
+  <div className="w-full space-y-1">
+    {label && <label className="text-xs font-black uppercase text-slate-400 ml-1">{label}</label>}
+    <input
+      type={type}
+      step={step}
+      placeholder={placeholder}
+      value={value}
+      onChange={onChange}
+      required={required}
+      className="w-full px-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-medium text-slate-800"
+    />
+  </div>
+);
+
+const Button = ({ children, onClick, disabled = false, type = "button", className = "" }) => (
+  <button 
+    type={type} 
+    onClick={onClick} 
+    disabled={disabled} 
+    className={`w-full bg-indigo-600 text-white font-black py-4 rounded-2xl shadow-xl shadow-indigo-100 hover:bg-indigo-700 transition-all flex items-center justify-center gap-2 disabled:opacity-50 ${className}`}
+  >
+    {children}
+  </button>
+);
+
+// --- MOCK DE ROUTER (Para entorno de previsualización) ---
+const useRouter = () => ({
+  push: (path) => console.log("Redirigiendo a:", path),
+  query: {},
+  pathname: "/admin/setup"
+});
+
+// --- COMPONENTE PRINCIPAL ---
+export default function BusinessSetup() {
+  const router = useRouter();
   const [user, setUser] = useState(null);
-  const [business, setBusiness] = useState(null);
-  const [view, setView] = useState('loading'); // loading, setup, main
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [error, setError] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [setupComplete, setSetupComplete] = useState(false);
+  const [credentials, setCredentials] = useState(null);
+  
+  const [formData, setFormData] = useState({
+    name: 'Dulce Sal',
+    address: '',
+    lat: '',
+    lng: '',
+    radius: '200'
+  });
 
-  // 1. Mandatory Authentication Flow (Rule 3)
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (err) {
-        console.error("Auth initialization error:", err);
-        setError("Error de autenticación");
-      }
-    };
-
-    initAuth();
-
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      if (currentUser) {
-        setLoadingData(false);
-      }
-    });
+    const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
 
-  const [loadingData, setLoadingData] = useState(true);
+  const getLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((p) => {
+        setFormData(prev => ({ 
+          ...prev, 
+          lat: p.coords.latitude.toString(), 
+          lng: p.coords.longitude.toString() 
+        }));
+      });
+    }
+  };
 
-  // 2. Single Business Detection (Rule 1 & Rule 2)
-  useEffect(() => {
-    // Guard: Always check for user before querying (Rule 3)
-    if (!user) return;
+  const handleSetup = async (e) => {
+    e.preventDefault();
+    setIsSaving(true);
 
-    // Use mandatory SaaS path (Rule 1)
-    const businessesRef = collection(db, 'artifacts', appId, 'public', 'data', 'businesses');
-    
-    // Simple query without limit() (Rule 2)
-    const q = query(businessesRef);
+    try {
+      // 1. Generar Credenciales Automáticas
+      const autoEmail = `admin@dulcesal.com`;
+      const autoPassword = `dulce${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const unsubscribe = onSnapshot(q, (snap) => {
-      if (snap.empty) {
-        setView('setup');
-      } else {
-        // Take the first business found (filtering in memory per Rule 2)
-        const businessDoc = snap.docs[0];
-        const businessData = { id: businessDoc.id, ...businessDoc.data() };
-        setBusiness(businessData);
-        
-        // Verify if the current user is the owner
-        if (user.uid === businessData.ownerId) {
-          setIsAdmin(true);
-        }
-        setView('main');
-      }
-      setLoadingData(false);
-    }, (err) => {
-      console.error("Firestore snapshot error:", err);
-      // Fallback: If permissions fail, might need setup or check path
-      if (err.code === 'permission-denied') {
-        setError("Error de acceso a la base de datos.");
-      }
-    });
+      // 2. Crear usuario administrador
+      const userCredential = await createUserWithEmailAndPassword(auth, autoEmail, autoPassword);
+      const adminUser = userCredential.user;
 
-    return () => unsubscribe();
-  }, [user]);
+      // 3. Guardar el Negocio Único (Ruta SaaS obligatoria)
+      const businessId = 'dulce-sal-id';
+      const businessRef = doc(db, 'artifacts', appId, 'public', 'data', 'businesses', businessId);
+      
+      await setDoc(businessRef, {
+        name: formData.name,
+        address: formData.address,
+        lat: parseFloat(formData.lat),
+        lng: parseFloat(formData.lng),
+        radius: parseInt(formData.radius),
+        ownerId: adminUser.uid,
+        adminEmail: autoEmail,
+        createdAt: new Date().toISOString()
+      });
 
-  if (view === 'loading' || loadingData) {
+      setCredentials({ email: autoEmail, pass: autoPassword });
+      setSetupComplete(true);
+    } catch (err) {
+      console.error(err);
+      alert("Error al configurar Dulce Sal. Es posible que el correo ya esté en uso o haya un problema de conexión.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const publicRegisterUrl = typeof window !== 'undefined' ? `${window.location.origin}/` : '';
+  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(publicRegisterUrl)}&margin=20`;
+
+  if (setupComplete) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-500 font-bold">Cargando Dulce App...</p>
-        {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
-      </div>
-    );
-  }
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
+        <div className="bg-white p-10 rounded-[3rem] shadow-2xl border border-slate-100 w-full max-w-2xl text-center">
+          <div className="bg-emerald-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 className="text-emerald-600" size={40} />
+          </div>
+          <h1 className="text-3xl font-black text-slate-800 mb-2">¡Dulce Sal está Online!</h1>
+          <p className="text-slate-500 mb-8 font-medium">Configuración completada con éxito.</p>
 
-  // Redirect to setup if no business exists
-  if (view === 'setup') {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-indigo-600 text-white p-10 text-center">
-        <Store size={64} className="mb-6 opacity-80" />
-        <h2 className="text-3xl font-black mb-4">Bienvenido a Dulce App</h2>
-        <p className="mb-8 opacity-90 max-w-sm">Aún no has configurado tu negocio. Por favor, completa el registro inicial.</p>
-        <button 
-          onClick={() => window.location.href = '/admin/setup'}
-          className="bg-white text-indigo-600 px-8 py-4 rounded-2xl font-black shadow-xl"
-        >
-          Configurar Negocio Ahora
-        </button>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 text-left">
+              <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4">Tus Accesos Admin</h3>
+              <div className="space-y-3">
+                <div className="bg-white p-3 rounded-xl border border-slate-200">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase">Email</p>
+                  <p className="font-mono text-sm text-indigo-600">{credentials.email}</p>
+                </div>
+                <div className="bg-white p-3 rounded-xl border border-slate-200">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase">Password Temporal</p>
+                  <p className="font-mono text-sm text-indigo-600">{credentials.pass}</p>
+                </div>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-4 leading-relaxed">
+                Guarda estos datos. Los necesitarás para entrar al panel y gestionar a tus clientes.
+              </p>
+            </div>
+
+            <div className="bg-indigo-600 p-6 rounded-3xl shadow-xl text-white">
+              <h3 className="text-xs font-black uppercase tracking-widest text-indigo-200 mb-4">QR del Mostrador</h3>
+              <div className="bg-white p-2 rounded-2xl mb-4 inline-block">
+                <img src={qrCodeUrl} alt="QR Local" className="w-32 h-32" />
+              </div>
+              <p className="text-xs font-bold mb-4">Descarga este QR e imprímelo para que tus clientes se registren.</p>
+              <a 
+                href={qrCodeUrl} 
+                target="_blank" 
+                rel="noreferrer"
+                className="inline-flex items-center gap-2 bg-white text-indigo-600 px-4 py-2 rounded-xl text-xs font-black hover:bg-indigo-50 transition-all"
+              >
+                <Download size={14} /> Descargar QR
+              </a>
+            </div>
+          </div>
+
+          <div className="mt-10">
+            <button 
+              onClick={() => router.push('/admin')}
+              className="w-full bg-slate-900 text-white font-black py-4 rounded-2xl hover:bg-black transition-all"
+            >
+              Ir al Panel de Control de Dulce Sal
+            </button>
+          </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center font-sans selection:bg-indigo-100">
-      <div className="bg-white p-12 rounded-[3rem] shadow-2xl shadow-indigo-100/50 border border-slate-100 max-w-md w-full animate-in fade-in zoom-in duration-500">
-        <div className="bg-indigo-50 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-8 rotate-3 shadow-inner">
-          <Store className="text-indigo-600" size={48} />
+    <div className="min-h-screen bg-indigo-600 flex items-center justify-center p-6 font-sans">
+      <div className="bg-white p-10 rounded-[2.5rem] shadow-2xl w-full max-w-md animate-in fade-in zoom-in-95 duration-500">
+        <div className="text-center mb-10">
+          <div className="bg-indigo-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-5 rotate-3 shadow-inner">
+            <Store className="text-indigo-600" size={40} />
+          </div>
+          <h1 className="text-4xl font-black text-slate-800 tracking-tighter">Dulce Sal</h1>
+          <p className="text-slate-400 mt-2 font-medium italic text-sm">Configuración de marca blanca</p>
         </div>
-        
-        <h1 className="text-4xl font-black text-slate-900 mb-3 tracking-tight">
-          {business?.name || "Dulce App"}
-        </h1>
-        <p className="text-slate-400 mb-10 font-medium italic">
-          {business?.address || "Programa de Fidelización"}
-        </p>
-        
-        <div className="space-y-4">
+
+        <form onSubmit={handleSetup} className="space-y-5">
+          <Input 
+            label="Dirección del Local" 
+            placeholder="Ej: Av. Principal 123"
+            value={formData.address}
+            onChange={e => setFormData({...formData, address: e.target.value})}
+            required
+          />
+
+          <div className="grid grid-cols-2 gap-4">
+            <Input 
+              label="Latitud" 
+              type="number"
+              value={formData.lat}
+              onChange={e => setFormData({...formData, lat: e.target.value})}
+              required
+            />
+            <Input 
+              label="Longitud" 
+              type="number"
+              value={formData.lng}
+              onChange={e => setFormData({...formData, lng: e.target.value})}
+              required
+            />
+          </div>
+
           <button 
-            onClick={() => window.location.href = '/customer'}
-            className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:scale-[1.02] transition-all flex items-center justify-center gap-3 active:scale-95"
+            type="button" 
+            onClick={getLocation}
+            className="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 hover:bg-slate-200 transition-colors"
           >
-            <User size={22} /> Ver Mis Puntos
+            <MapPin size={16} /> Obtener GPS actual
           </button>
 
-          {isAdmin ? (
-            <button 
-              onClick={() => window.location.href = '/admin'}
-              className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl shadow-xl shadow-slate-200 hover:bg-black hover:scale-[1.02] transition-all flex items-center justify-center gap-3 active:scale-95"
-            >
-              <LayoutDashboard size={22} /> Panel Administrativo
-            </button>
-          ) : (
-            <div className="pt-6">
-              <button 
-                onClick={() => window.location.href = '/login'}
-                className="text-slate-400 text-[10px] font-black hover:text-indigo-600 transition-colors uppercase tracking-[0.2em]"
-              >
-                Acceso para Administradores
-              </button>
-            </div>
-          )}
-        </div>
+          <Input 
+            label="Radio de Alerta (Metros)" 
+            type="number"
+            value={formData.radius}
+            onChange={e => setFormData({...formData, radius: e.target.value})}
+            required
+          />
+
+          <Button type="submit" disabled={isSaving}>
+            {isSaving ? 'Configurando...' : <><Sparkles size={18} /> Crear App Dulce Sal</>}
+          </Button>
+        </form>
       </div>
-      
-      <p className="mt-12 text-slate-300 text-[10px] font-black uppercase tracking-[0.5em]">
-        Powered by FidelizaPro
-      </p>
     </div>
   );
 }
