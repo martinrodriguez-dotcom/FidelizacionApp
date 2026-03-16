@@ -24,7 +24,9 @@ import {
   UserPlus,
   Heart,
   Share2,
-  Clock
+  Clock,
+  BellRing,
+  Bell
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
@@ -43,15 +45,11 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// IMPORTANTE: Aplanamos el appId para evitar errores de segmentos en la ruta de Firestore
-const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'dulce-sal-app';
-const appId = rawAppId.replace(/\//g, '_');
+// ID fijo para Dulce Sal
+const appIdSaaS = "dulce-sal-app"; 
+const DULCE_SAL_ID = "dulce-sal-id";
 
-// ID fijo para tu negocio único
-const DULCE_SAL_ID = 'dulce-sal-id';
-
-// --- COMPONENTES UI ---
-const Button = ({ children, onClick, variant = 'primary', fullWidth = false, disabled = false, type = "button" }) => {
+const Button = ({ children, onClick, variant = 'primary', fullWidth = false, disabled = false, type = "button", className="" }) => {
   const base = "px-6 py-4 rounded-2xl font-black transition-all flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50";
   const variants = {
     primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-xl shadow-indigo-100",
@@ -59,87 +57,71 @@ const Button = ({ children, onClick, variant = 'primary', fullWidth = false, dis
     outline: "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
   };
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${fullWidth ? 'w-full' : ''}`}>
+    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${fullWidth ? 'w-full' : ''} ${className}`}>
       {children}
     </button>
   );
 };
 
-// --- MOCK DE ROUTER ---
-const useRouter = () => ({
-  push: (path) => console.log("Navegando a:", path),
-  query: {},
-  pathname: "/customer"
-});
-
-// --- PÁGINA PRINCIPAL DEL CLIENTE ---
 export default function CustomerSection() {
-  const router = useRouter();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isRegistering, setIsRegistering] = useState(false);
   
-  // Datos de Dulce Sal
   const [business, setBusiness] = useState(null);
   const [card, setCard] = useState(null);
   const [rewards, setRewards] = useState([]);
   
-  // Formulario
   const [formData, setFormData] = useState({ name: '', phone: '' });
 
-  // 1. Autenticación Persistente
+  // ESTADO PARA NOTIFICACIONES PUSH
+  const [pushPermission, setPushPermission] = useState('default');
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-      } else {
-        try {
-          await signInAnonymously(auth);
-        } catch (err) {
-          console.error("Error Auth:", err);
-        }
+      if (currentUser) setUser(currentUser);
+      else {
+        try { await signInAnonymously(auth); } 
+        catch (err) { console.error("Error Auth:", err); }
       }
     });
+
+    // Verificar si el navegador soporta notificaciones y su estado actual
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setPushPermission(Notification.permission);
+    }
+
     return () => unsubscribe();
   }, []);
 
-  // 2. Cargar datos en tiempo real de Dulce Sal y la Tarjeta del Cliente
   useEffect(() => {
     if (!user) return;
 
-    // Ruta segura para el negocio único
-    const bRef = doc(db, 'artifacts', appId, 'public', 'data', 'businesses', DULCE_SAL_ID);
+    const bRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'businesses', DULCE_SAL_ID);
     onSnapshot(bRef, (snap) => {
       if (snap.exists()) setBusiness(snap.data());
     });
 
-    // Ruta segura para la tarjeta del cliente
     const cardId = `${DULCE_SAL_ID}_${user.uid}`;
-    const cardRef = doc(db, 'artifacts', appId, 'public', 'data', 'loyalty_cards', cardId);
+    const cardRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId);
     
     const unsubscribeCard = onSnapshot(cardRef, (snap) => {
-      if (snap.exists()) {
-        setCard(snap.data());
-      }
+      if (snap.exists()) setCard(snap.data());
       setLoading(false);
     }, (err) => {
       console.error("Error Firestore (Card):", err);
       setLoading(false);
     });
 
-    // Cargar recompensas
-    const rRef = collection(db, 'artifacts', appId, 'public', 'data', 'rewards');
+    const rRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'rewards');
     const q = query(rRef, where('businessId', '==', DULCE_SAL_ID));
     onSnapshot(q, (snap) => {
       setRewards(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    }, (err) => {
-      console.error("Error Firestore (Rewards):", err);
     });
 
     return () => unsubscribeCard();
   }, [user]);
 
-  // 3. Crear Tarjeta de Fidelidad (Registro inicial)
   const handleRegister = async (e) => {
     e.preventDefault();
     if (!formData.name || !formData.phone) return;
@@ -147,7 +129,7 @@ export default function CustomerSection() {
     setIsRegistering(true);
     try {
       const cardId = `${DULCE_SAL_ID}_${user.uid}`;
-      const cardRef = doc(db, 'artifacts', appId, 'public', 'data', 'loyalty_cards', cardId);
+      const cardRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId);
 
       await setDoc(cardRef, {
         businessId: DULCE_SAL_ID,
@@ -158,12 +140,40 @@ export default function CustomerSection() {
         points: 0,
         visits: 0,
         createdAt: new Date().toISOString(),
-        lastVisit: null
+        lastVisit: null,
+        pushEnabled: false // Nuevo campo para saber si aceptó notificaciones
       });
     } catch (err) {
       console.error("Error Registro:", err);
     } finally {
       setIsRegistering(false);
+    }
+  };
+
+  // FUNCIÓN PARA SOLICITAR PERMISOS PUSH AL NAVEGADOR DEL CLIENTE
+  const requestPushPermission = async () => {
+    if (!('Notification' in window)) {
+      alert("Tu dispositivo actual no soporta notificaciones web.");
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setPushPermission(permission);
+
+      if (permission === 'granted' && card) {
+        // Si acepta, actualizamos su tarjeta en la base de datos para marcarlo como suscrito
+        const cardId = `${DULCE_SAL_ID}_${user.uid}`;
+        const cardRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId);
+        await updateDoc(cardRef, { pushEnabled: true });
+
+        // Mostrar una notificación de prueba local para confirmar que funcionó
+        new Notification("¡Gracias por suscribirte!", {
+          body: "Te avisaremos cuando tengas premios disponibles en Dulce Sal.",
+        });
+      }
+    } catch (error) {
+      console.error("Error pidiendo permisos:", error);
     }
   };
 
@@ -233,13 +243,13 @@ export default function CustomerSection() {
               </div>
             </div>
           </div>
-          <button className="bg-white p-3 rounded-2xl border border-slate-200 text-slate-400 hover:text-indigo-600 transition-colors shadow-sm">
+          <button onClick={() => window.location.href = '/'} className="bg-white p-3 rounded-2xl border border-slate-200 text-slate-400 hover:text-indigo-600 transition-colors shadow-sm">
             <Share2 size={20} />
           </button>
         </div>
 
         {/* Tarjeta Digital Premium */}
-        <div className="bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl text-white relative overflow-hidden mb-10">
+        <div className="bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl text-white relative overflow-hidden mb-8">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-indigo-500/20 rounded-full blur-[80px] pointer-events-none"></div>
           
           <div className="flex justify-between items-start mb-10 relative z-10">
@@ -276,6 +286,22 @@ export default function CustomerSection() {
             <p className="text-[9px] font-mono text-white/20 tracking-[0.5em] uppercase">Presenta este QR al pagar</p>
           </div>
         </div>
+
+        {/* NUEVA SECCIÓN: PERMISO DE NOTIFICACIONES PUSH */}
+        {pushPermission === 'default' && (
+          <div className="bg-indigo-50 border border-indigo-100 rounded-[2rem] p-6 mb-8 flex flex-col items-center text-center animate-in slide-in-from-bottom-4 shadow-sm">
+            <div className="bg-white p-3 rounded-full text-indigo-600 mb-3 shadow-sm">
+              <BellRing size={24} />
+            </div>
+            <h3 className="font-black text-indigo-900 mb-2">¡No te pierdas tus premios!</h3>
+            <p className="text-xs text-indigo-700/80 font-medium mb-4 leading-relaxed px-4">
+              Activa las notificaciones para que te avisemos cuando tengas promociones exclusivas en Dulce Sal.
+            </p>
+            <Button onClick={requestPushPermission} variant="primary" fullWidth className="py-3 shadow-indigo-200">
+              Permitir Notificaciones
+            </Button>
+          </div>
+        )}
 
         {/* Sección de Recompensas */}
         <div className="px-2">
