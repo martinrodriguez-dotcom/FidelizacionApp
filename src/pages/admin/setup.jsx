@@ -1,208 +1,175 @@
-import React, { useState } from 'react';
-import { useRouter } from 'next/router';
-import { createUserWithEmailAndPassword } from 'firebase/auth';
-import { collection, doc, setDoc } from 'firebase/firestore';
-import { Store, MapPin, Mail, Lock, Info } from 'lucide-react';
-import { db, auth } from '../../services/firebase';
-import Input from '../../components/ui/Input';
-import Button from '../../components/ui/Button';
+import React, { useState, useEffect } from 'react';
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, query } from 'firebase/firestore';
+import { Store, User, LayoutDashboard } from 'lucide-react';
 
-// ID de la aplicación para el esquema SaaS
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'fidelizapro-saas';
+// --- FIREBASE CONFIGURATION ---
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "",
+      authDomain: "",
+      projectId: "",
+      storageBucket: "",
+      messagingSenderId: "",
+      appId: ""
+    };
+
+const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'dulce-app-fidelizacion';
 
 /**
- * Página de Registro y Configuración de Negocio (Ruta: /admin/setup)
- * Permite a nuevos comerciantes crear su cuenta y configurar su local.
+ * App.jsx: White-label version for "Dulce App"
+ * Focuses on a single business identity and simplifies the user flow.
  */
-export default function BusinessSetup() {
-  const router = useRouter();
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState('');
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    address: '',
-    lat: '',
-    lng: '',
-    radius: '200',
-    email: '',
-    password: ''
-  });
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [business, setBusiness] = useState(null);
+  const [view, setView] = useState('loading'); // loading, setup, main
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [error, setError] = useState(null);
 
-  const getLocation = () => {
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (p) => {
-          setFormData(prev => ({ 
-            ...prev, 
-            lat: p.coords.latitude.toString(), 
-            lng: p.coords.longitude.toString() 
-          }));
-        },
-        (err) => {
-          setError('No pudimos obtener tu ubicación. Por favor, ingrésala manualmente.');
+  // 1. Mandatory Authentication Flow (Rule 3)
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
         }
-      );
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setError('');
-    
-    try {
-      // 1. Crear el usuario administrador con Email y Contraseña
-      const userCredential = await createUserWithEmailAndPassword(
-        auth, 
-        formData.email, 
-        formData.password
-      );
-      const user = userCredential.user;
-
-      // 2. Guardar los datos del negocio en la ruta SaaS de Firestore
-      // Usamos una nueva referencia de documento en la colección de negocios
-      const businessRef = doc(collection(db, 'artifacts', appId, 'public', 'data', 'businesses'));
-      
-      await setDoc(businessRef, {
-        name: formData.name,
-        address: formData.address,
-        lat: parseFloat(formData.lat),
-        lng: parseFloat(formData.lng),
-        radius: parseInt(formData.radius),
-        ownerId: user.uid,
-        ownerEmail: formData.email,
-        createdAt: new Date().toISOString()
-      });
-
-      // 3. Redirigir al panel de administración
-      router.push('/admin');
-    } catch (err) {
-      console.error("Error en el registro:", err);
-      if (err.code === 'auth/email-already-in-use') {
-        setError('Este correo electrónico ya está registrado.');
-      } else if (err.code === 'auth/weak-password') {
-        setError('La contraseña debe tener al menos 6 caracteres.');
-      } else {
-        setError('Hubo un error al crear la cuenta. Inténtalo de nuevo.');
+      } catch (err) {
+        console.error("Auth initialization error:", err);
+        setError("Error de autenticación");
       }
-    } finally {
-      setIsSaving(false);
-    }
-  };
+    };
+
+    initAuth();
+
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      if (currentUser) {
+        setLoadingData(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const [loadingData, setLoadingData] = useState(true);
+
+  // 2. Single Business Detection (Rule 1 & Rule 2)
+  useEffect(() => {
+    // Guard: Always check for user before querying (Rule 3)
+    if (!user) return;
+
+    // Use mandatory SaaS path (Rule 1)
+    const businessesRef = collection(db, 'artifacts', appId, 'public', 'data', 'businesses');
+    
+    // Simple query without limit() (Rule 2)
+    const q = query(businessesRef);
+
+    const unsubscribe = onSnapshot(q, (snap) => {
+      if (snap.empty) {
+        setView('setup');
+      } else {
+        // Take the first business found (filtering in memory per Rule 2)
+        const businessDoc = snap.docs[0];
+        const businessData = { id: businessDoc.id, ...businessDoc.data() };
+        setBusiness(businessData);
+        
+        // Verify if the current user is the owner
+        if (user.uid === businessData.ownerId) {
+          setIsAdmin(true);
+        }
+        setView('main');
+      }
+      setLoadingData(false);
+    }, (err) => {
+      console.error("Firestore snapshot error:", err);
+      // Fallback: If permissions fail, might need setup or check path
+      if (err.code === 'permission-denied') {
+        setError("Error de acceso a la base de datos.");
+      }
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  if (view === 'loading' || loadingData) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-500 font-bold">Cargando Dulce App...</p>
+        {error && <p className="text-red-500 text-xs mt-2">{error}</p>}
+      </div>
+    );
+  }
+
+  // Redirect to setup if no business exists
+  if (view === 'setup') {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-indigo-600 text-white p-10 text-center">
+        <Store size={64} className="mb-6 opacity-80" />
+        <h2 className="text-3xl font-black mb-4">Bienvenido a Dulce App</h2>
+        <p className="mb-8 opacity-90 max-w-sm">Aún no has configurado tu negocio. Por favor, completa el registro inicial.</p>
+        <button 
+          onClick={() => window.location.href = '/admin/setup'}
+          className="bg-white text-indigo-600 px-8 py-4 rounded-2xl font-black shadow-xl"
+        >
+          Configurar Negocio Ahora
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center p-6 font-sans">
-      <div className="bg-white p-8 md:p-12 rounded-[2.5rem] shadow-sm border border-slate-100 w-full max-w-2xl">
-        
-        <div className="flex items-center gap-5 mb-10">
-          <div className="bg-indigo-600 p-4 rounded-2xl shadow-lg shadow-indigo-100">
-            <Store className="text-white" size={32} />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black text-slate-800 tracking-tight">Crea tu Negocio</h1>
-            <p className="text-slate-500 font-medium">Configura tu cuenta de administrador y tu local.</p>
-          </div>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center font-sans selection:bg-indigo-100">
+      <div className="bg-white p-12 rounded-[3rem] shadow-2xl shadow-indigo-100/50 border border-slate-100 max-w-md w-full animate-in fade-in zoom-in duration-500">
+        <div className="bg-indigo-50 w-24 h-24 rounded-[2rem] flex items-center justify-center mx-auto mb-8 rotate-3 shadow-inner">
+          <Store className="text-indigo-600" size={48} />
         </div>
+        
+        <h1 className="text-4xl font-black text-slate-900 mb-3 tracking-tight">
+          {business?.name || "Dulce App"}
+        </h1>
+        <p className="text-slate-400 mb-10 font-medium italic">
+          {business?.address || "Programa de Fidelización"}
+        </p>
+        
+        <div className="space-y-4">
+          <button 
+            onClick={() => window.location.href = '/customer'}
+            className="w-full bg-indigo-600 text-white font-black py-5 rounded-2xl shadow-xl shadow-indigo-200 hover:bg-indigo-700 hover:scale-[1.02] transition-all flex items-center justify-center gap-3 active:scale-95"
+          >
+            <User size={22} /> Ver Mis Puntos
+          </button>
 
-        <form onSubmit={handleSubmit} className="space-y-8">
-          
-          {/* Sección de Cuenta */}
-          <div className="space-y-4">
-            <h2 className="text-sm font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-              <Mail size={14} /> Datos de Acceso
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Input 
-                label="Correo Electrónico" 
-                type="email"
-                placeholder="ejemplo@negocio.com"
-                value={formData.email} 
-                onChange={e => setFormData({...formData, email: e.target.value})} 
-                required 
-              />
-              <Input 
-                label="Contraseña" 
-                type="password"
-                placeholder="Min. 6 caracteres"
-                value={formData.password} 
-                onChange={e => setFormData({...formData, password: e.target.value})} 
-                required 
-              />
-            </div>
-          </div>
-
-          <hr className="border-slate-100" />
-
-          {/* Sección de Negocio */}
-          <div className="space-y-4">
-            <h2 className="text-sm font-black uppercase tracking-widest text-slate-400 flex items-center gap-2">
-              <Info size={14} /> Información del Local
-            </h2>
-            <div className="grid grid-cols-1 gap-4">
-              <Input 
-                label="Nombre Comercial" 
-                placeholder="Ej: Starbucks Centro"
-                value={formData.name} 
-                onChange={e => setFormData({...formData, name: e.target.value})} 
-                required 
-              />
-              <Input 
-                label="Dirección Física" 
-                placeholder="Calle, Ciudad, País"
-                value={formData.address} 
-                onChange={e => setFormData({...formData, address: e.target.value})} 
-                required 
-              />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
-              <Input 
-                label="Latitud" 
-                type="number" 
-                step="any" 
-                value={formData.lat} 
-                onChange={e => setFormData({...formData, lat: e.target.value})} 
-                required 
-              />
-              <Input 
-                label="Longitud" 
-                type="number" 
-                step="any" 
-                value={formData.lng} 
-                onChange={e => setFormData({...formData, lng: e.target.value})} 
-                required 
-              />
+          {isAdmin ? (
+            <button 
+              onClick={() => window.location.href = '/admin'}
+              className="w-full bg-slate-900 text-white font-black py-5 rounded-2xl shadow-xl shadow-slate-200 hover:bg-black hover:scale-[1.02] transition-all flex items-center justify-center gap-3 active:scale-95"
+            >
+              <LayoutDashboard size={22} /> Panel Administrativo
+            </button>
+          ) : (
+            <div className="pt-6">
               <button 
-                type="button" 
-                onClick={getLocation} 
-                className="h-[52px] bg-slate-100 rounded-xl hover:bg-slate-200 border border-slate-200 transition-all flex items-center justify-center gap-2 text-slate-600 font-bold text-sm"
+                onClick={() => window.location.href = '/login'}
+                className="text-slate-400 text-[10px] font-black hover:text-indigo-600 transition-colors uppercase tracking-[0.2em]"
               >
-                <MapPin size={18} /> Obtener GPS
+                Acceso para Administradores
               </button>
             </div>
-
-            <Input 
-              label="Radio de Alerta (Metros)" 
-              type="number" 
-              value={formData.radius} 
-              onChange={e => setFormData({...formData, radius: e.target.value})} 
-              required 
-            />
-          </div>
-
-          {error && (
-            <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-bold border border-red-100 animate-pulse text-center">
-              {error}
-            </div>
           )}
-
-          <Button type="submit" fullWidth disabled={isSaving} className="!py-5 !text-lg shadow-2xl shadow-indigo-200">
-            {isSaving ? 'Creando cuenta...' : 'Finalizar y Entrar al Panel'}
-          </Button>
-          
-        </form>
+        </div>
       </div>
+      
+      <p className="mt-12 text-slate-300 text-[10px] font-black uppercase tracking-[0.5em]">
+        Powered by FidelizaPro
+      </p>
     </div>
   );
 }
