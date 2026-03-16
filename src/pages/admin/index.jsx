@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from 'react';
-import { useRouter } from 'next/router';
 import { 
   getFirestore, 
   collection, 
@@ -10,21 +9,25 @@ import {
 } from 'firebase/firestore';
 import { 
   getAuth, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  signOut
 } from 'firebase/auth';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
-  BarChart3, 
+  LayoutDashboard, 
   QrCode, 
   Users, 
   Award, 
-  Bell, 
-  Store,
   LogOut,
-  TrendingUp
+  TrendingUp,
+  Store,
+  Calendar,
+  ChevronRight,
+  Search,
+  Filter
 } from 'lucide-react';
 
-// --- CONFIGURACIÓN DE FIREBASE (Consistente con el resto de la app) ---
+// --- CONFIGURACIÓN DE FIREBASE (Consolidada para evitar errores de importación) ---
 const firebaseConfig = {
   apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
   authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
@@ -38,20 +41,23 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Identificadores fijos para Dulce Sal (Deben coincidir con App.jsx y Customer index)
+// Identificadores del SaaS para Dulce Sal
 const appIdSaaS = "dulce-sal-app"; 
 const DULCE_SAL_ID = "dulce-sal-main-id";
 
-// --- COMPONENTES UI INLINED PARA EVITAR ERRORES ---
+// --- COMPONENTES UI INTERNOS ---
 
-const StatCard = ({ title, value, icon, color = "indigo" }) => (
-  <div className="bg-white p-6 rounded-[2rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+const StatCard = ({ title, value, icon, color = "indigo", subtitle }) => (
+  <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300 group">
     <div className="flex justify-between items-start">
       <div>
-        <p className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">{title}</p>
-        <h3 className="text-3xl font-black text-slate-800">{value}</h3>
+        <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2">{title}</p>
+        <h3 className="text-4xl font-black text-slate-900 tracking-tight group-hover:scale-105 transition-transform origin-left">
+          {value}
+        </h3>
+        {subtitle && <p className="text-slate-400 text-[10px] mt-2 font-medium">{subtitle}</p>}
       </div>
-      <div className={`p-3 rounded-2xl bg-${color}-50 text-${color}-600`}>
+      <div className={`p-4 rounded-2xl bg-${color}-50 text-${color}-600 group-hover:rotate-6 transition-transform`}>
         {icon}
       </div>
     </div>
@@ -59,32 +65,33 @@ const StatCard = ({ title, value, icon, color = "indigo" }) => (
 );
 
 /**
- * Panel Administrativo Dulce Sal (Ruta: /admin)
- * Corregido para usar la ruta artifacts/dulce-sal-app/...
+ * AdminDashboard: El centro de comando de Dulce Sal.
+ * Permite gestionar clientes, ver métricas y controlar el programa de fidelización.
  */
 export default function AdminDashboard() {
   const [user, setUser] = useState(null);
   const [business, setBusiness] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // 1. Manejo de Auth
+  // 1. Gestión de Sesión
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
       if (!currentUser) {
-        // Si no hay usuario, redirigir al login (simulado)
-        window.location.href = '/login';
+        // Redirigir al portal si no hay sesión activa
+        window.location.href = '/';
       }
     });
     return () => unsubscribe();
   }, []);
 
-  // 2. Carga de Datos con Rutas SaaS Corregidas
+  // 2. Carga de Datos (Suscripción en Tiempo Real)
   useEffect(() => {
     if (!user) return;
 
-    // A. Obtener Info del Negocio (Ruta SaaS)
+    // A. Info del Negocio Único
     const businessRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'businesses', DULCE_SAL_ID);
     const unsubBusiness = onSnapshot(businessRef, (snap) => {
       if (snap.exists()) {
@@ -92,17 +99,17 @@ export default function AdminDashboard() {
       }
     });
 
-    // B. Obtener Clientes / Tarjetas (Ruta SaaS)
+    // B. Lista de Clientes con Tarjeta en Dulce Sal
     const customersRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards');
     const q = query(customersRef, where('businessId', '==', DULCE_SAL_ID));
 
     const unsubCustomers = onSnapshot(q, (snap) => {
       const list = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      // Ordenar por más recientes
+      // Ordenamos: Los registros más recientes primero
       setCustomers(list.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
       setLoading(false);
     }, (err) => {
-      console.error("Error cargando clientes en Admin:", err);
+      console.error("Error cargando base de clientes:", err);
       setLoading(false);
     });
 
@@ -112,114 +119,234 @@ export default function AdminDashboard() {
     };
   }, [user]);
 
+  const handleLogout = async () => {
+    await signOut(auth);
+    window.location.href = '/';
+  };
+
+  // Filtrado de búsqueda
+  const filteredCustomers = customers.filter(c => 
+    c.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.customerPhone?.includes(searchTerm)
+  );
+
   if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <div className="w-10 h-10 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+      <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando Panel Dulce Sal</p>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans">
+    <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-indigo-100">
       
-      {/* Sidebar Simulado */}
-      <aside className="w-64 bg-white border-r border-slate-100 hidden md:flex flex-col p-6 sticky top-0 h-screen">
-        <div className="mb-10 flex items-center gap-3">
-          <div className="bg-indigo-600 p-2 rounded-xl text-white">
-            <Store size={20} />
+      {/* SIDEBAR LATERAL */}
+      <aside className="w-72 bg-white border-r border-slate-100 hidden lg:flex flex-col p-8 sticky top-0 h-screen">
+        <div className="mb-12 flex items-center gap-4">
+          <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg shadow-indigo-100">
+            <Store size={24} />
           </div>
-          <h2 className="font-black text-slate-800 tracking-tight text-xl">Dulce Sal</h2>
+          <div>
+            <h2 className="font-black text-slate-900 tracking-tighter text-2xl italic">Dulce Sal</h2>
+            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Admin Console</p>
+          </div>
         </div>
         
-        <nav className="space-y-2 flex-1">
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-indigo-50 text-indigo-600 font-bold text-sm">
-            <LayoutDashboard size={18} /> Dashboard
+        <nav className="space-y-3 flex-1">
+          <button className="w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] bg-indigo-600 text-white font-bold text-sm shadow-xl shadow-indigo-100 transition-all">
+            <div className="flex items-center gap-3">
+              <LayoutDashboard size={18} /> Dashboard
+            </div>
+            <ChevronRight size={14} className="opacity-50" />
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-400 hover:bg-slate-50 font-bold text-sm transition-all">
-            <Users size={18} /> Clientes
+          
+          <button className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group">
+            <Users size={18} className="group-hover:text-indigo-500" /> Clientes
           </button>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-slate-400 hover:bg-slate-50 font-bold text-sm transition-all">
-            <Award size={18} /> Premios
+          
+          <button className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group">
+            <Award size={18} className="group-hover:text-amber-500" /> Configurar Premios
           </button>
         </nav>
 
-        <button onClick={() => auth.signOut()} className="flex items-center gap-3 px-4 py-3 text-red-400 font-bold text-sm hover:bg-red-50 rounded-2xl transition-all">
-          <LogOut size={18} /> Cerrar Sesión
-        </button>
+        <div className="pt-8 border-t border-slate-50">
+          <div className="bg-slate-50 p-4 rounded-2xl mb-4">
+            <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Usuario Admin</p>
+            <p className="text-xs font-bold text-slate-600 truncate">{user?.email}</p>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-6 py-4 text-red-400 font-bold text-sm hover:bg-red-50 rounded-[1.5rem] transition-all"
+          >
+            <LogOut size={18} /> Cerrar Sesión
+          </button>
+        </div>
       </aside>
 
-      {/* Contenido Principal */}
-      <main className="flex-1 p-6 md:p-12 overflow-y-auto">
-        <div className="max-w-5xl mx-auto">
+      {/* CONTENIDO PRINCIPAL */}
+      <main className="flex-1 p-6 lg:p-12 overflow-y-auto">
+        <div className="max-w-6xl mx-auto">
           
-          <header className="flex justify-between items-center mb-10">
+          {/* Header Mobile/Desktop */}
+          <header className="flex flex-col md:flex-row justify-between md:items-center gap-6 mb-12">
             <div>
-              <h1 className="text-3xl font-black text-slate-900 tracking-tight">Panel de Control</h1>
-              <p className="text-slate-400 font-medium italic">Gestionando {business?.name}</p>
+              <div className="flex items-center gap-2 text-indigo-600 mb-2">
+                <Calendar size={14} />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                </span>
+              </div>
+              <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Resumen General</h1>
+              <p className="text-slate-400 font-medium italic text-sm mt-1">Monitorea el crecimiento de Dulce Sal</p>
             </div>
-            <button className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black shadow-xl shadow-indigo-100 flex items-center gap-2 active:scale-95 transition-all">
-              <QrCode size={18} /> Escanear Cliente
-            </button>
+            
+            <div className="flex items-center gap-3">
+              <button 
+                onClick={() => window.location.href = '/'}
+                className="bg-white border border-slate-200 text-slate-600 px-6 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
+              >
+                Ver Portal Público
+              </button>
+              <button className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl hover:bg-black transition-all flex items-center gap-2 active:scale-95">
+                <QrCode size={18} /> Escanear Cliente
+              </button>
+            </div>
           </header>
 
-          {/* Stats Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-            <StatCard title="Total Clientes" value={customers.length} icon={<Users size={24}/>} color="indigo" />
-            <StatCard title="Visitas Totales" value={customers.reduce((acc,c) => acc + (c.visits || 0), 0)} icon={<TrendingUp size={24}/>} color="emerald" />
-            <StatCard title="Puntos Activos" value={customers.reduce((acc,c) => acc + (c.points || 0), 0)} icon={<Award size={24}/>} color="amber" />
+          {/* Grilla de Métricas */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+            <StatCard 
+              title="Comunidad Dulce Sal" 
+              value={customers.length} 
+              icon={<Users size={24}/>} 
+              color="indigo"
+              subtitle="Clientes únicos registrados"
+            />
+            <StatCard 
+              title="Tráfico Total" 
+              value={customers.reduce((acc,c) => acc + (c.visits || 0), 0)} 
+              icon={<TrendingUp size={24}/>} 
+              color="emerald"
+              subtitle="Visitas acumuladas históricas"
+            />
+            <StatCard 
+              title="Puntos en Circulación" 
+              value={customers.reduce((acc,c) => acc + (c.points || 0), 0)} 
+              icon={<Award size={24}/>} 
+              color="amber"
+              subtitle="Puntos pendientes de canje"
+            />
           </div>
 
-          {/* Tabla de Clientes Recientes */}
-          <div className="bg-white rounded-[2.5rem] border border-slate-100 shadow-sm overflow-hidden">
-            <div className="p-8 border-b border-slate-50 flex justify-between items-center">
-              <h3 className="font-black text-slate-800 text-xl">Clientes Registrados</h3>
-              <span className="text-xs font-black bg-slate-100 text-slate-400 px-3 py-1 rounded-full uppercase">En Tiempo Real</span>
+          {/* Sección de Tabla de Clientes */}
+          <section className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/40 overflow-hidden">
+            <div className="p-10 border-b border-slate-50 flex flex-col md:flex-row justify-between items-md-center gap-6">
+              <div>
+                <h3 className="font-black text-slate-900 text-2xl tracking-tight">Base de Clientes</h3>
+                <p className="text-slate-400 text-xs font-medium mt-1">Listado actualizado en tiempo real</p>
+              </div>
+              
+              <div className="flex items-center gap-4">
+                <div className="relative">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                  <input 
+                    type="text" 
+                    placeholder="Buscar por nombre o cel..."
+                    className="pl-12 pr-6 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm w-full md:w-64 transition-all"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+                <button className="p-3 bg-slate-50 text-slate-400 rounded-2xl border border-slate-100 hover:text-indigo-600 transition-colors">
+                  <Filter size={20} />
+                </button>
+              </div>
             </div>
             
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
-                  <tr className="bg-slate-50/50">
-                    <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Cliente</th>
-                    <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest">Contacto</th>
-                    <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Visitas</th>
-                    <th className="px-8 py-4 text-[10px] font-black uppercase text-slate-400 tracking-widest text-center">Puntos</th>
+                  <tr className="bg-slate-50/30">
+                    <th className="px-10 py-5 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">Socio</th>
+                    <th className="px-10 py-5 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em]">WhatsApp</th>
+                    <th className="px-10 py-5 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] text-center">Nivel</th>
+                    <th className="px-10 py-5 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] text-center">Fidelidad</th>
+                    <th className="px-10 py-5 text-[10px] font-black uppercase text-slate-400 tracking-[0.2em] text-right">Acción</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {customers.length === 0 ? (
+                  {filteredCustomers.length === 0 ? (
                     <tr>
-                      <td colSpan="4" className="px-8 py-20 text-center text-slate-300 italic">
-                        Esperando al primer cliente... comparte tu QR del mostrador.
+                      <td colSpan="5" className="px-10 py-24 text-center">
+                        <div className="max-w-xs mx-auto">
+                          <Users className="text-slate-200 mx-auto mb-4" size={48} />
+                          <p className="text-slate-400 font-bold text-sm italic">
+                            {searchTerm ? "No hay coincidencias para tu búsqueda." : "Aún no tienes clientes registrados. ¡Comparte tu código QR!"}
+                          </p>
+                        </div>
                       </td>
                     </tr>
-                  ) : customers.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="px-8 py-5">
-                        <p className="font-black text-slate-800">{c.customerName}</p>
-                        <p className="text-[10px] text-slate-400 font-mono">ID: {c.customerId.substring(0,8)}</p>
+                  ) : filteredCustomers.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-50/80 transition-all group">
+                      <td className="px-10 py-6">
+                        <div className="flex items-center gap-4">
+                          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-xs group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                            {c.customerName?.charAt(0)}
+                          </div>
+                          <div>
+                            <p className="font-black text-slate-900 leading-none mb-1.5 uppercase text-sm tracking-tight">{c.customerName}</p>
+                            <p className="text-[10px] text-slate-400 font-mono tracking-tighter italic">REG: {new Date(c.createdAt).toLocaleDateString()}</p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-8 py-5">
-                        <p className="text-sm text-slate-600 font-medium">{c.customerPhone}</p>
+                      <td className="px-10 py-6">
+                        <a href={`https://wa.me/${c.customerPhone}`} className="text-sm text-slate-600 font-bold hover:text-emerald-500 transition-colors flex items-center gap-1">
+                          {c.customerPhone}
+                        </a>
                       </td>
-                      <td className="px-8 py-5 text-center">
-                        <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded-full font-black text-sm">
-                          {c.visits || 0}
+                      <td className="px-10 py-6 text-center">
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ${
+                          (c.visits || 0) > 10 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-500'
+                        }`}>
+                          {(c.visits || 0) > 10 ? 'VIP Platinum' : 'Socio Base'}
                         </span>
                       </td>
-                      <td className="px-8 py-5 text-center">
-                        <span className="bg-amber-50 text-amber-600 px-3 py-1 rounded-full font-black text-sm">
-                          {c.points || 0}
-                        </span>
+                      <td className="px-10 py-6 text-center">
+                        <div className="flex items-center justify-center gap-4">
+                          <div className="text-center">
+                            <p className="text-[9px] font-black text-slate-300 uppercase mb-0.5 tracking-tighter">Visitas</p>
+                            <p className="font-black text-emerald-500">{c.visits || 0}</p>
+                          </div>
+                          <div className="w-px h-8 bg-slate-100"></div>
+                          <div className="text-center">
+                            <p className="text-[9px] font-black text-slate-300 uppercase mb-0.5 tracking-tighter">Puntos</p>
+                            <p className="font-black text-indigo-600">{c.points || 0}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-10 py-6 text-right">
+                        <button className="bg-slate-900 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-md shadow-slate-200">
+                          Gestionar
+                        </button>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-          </div>
+            
+            <div className="p-8 bg-slate-50/50 text-center">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Fin del Listado • Dulce Sal Loyalty</p>
+            </div>
+          </section>
 
         </div>
       </main>
+      
+      <style dangerouslySetInnerHTML={{ __html: `
+        .hide-scrollbar::-webkit-scrollbar { display: none; }
+        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+      ` }} />
     </div>
   );
 }
