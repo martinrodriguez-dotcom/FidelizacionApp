@@ -1,11 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { collection, query, where, onSnapshot, doc, getDoc } from 'firebase/firestore';
-import { Store, Award, CheckCircle2, ArrowLeft, MapPin } from 'lucide-react';
+import { Store, Award, CheckCircle2, MapPin } from 'lucide-react';
 import { db } from '../../services/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { useGeolocation } from '../../hooks/useGeolocation';
 import Button from '../../components/ui/Button';
+
+// ID del artefacto para cumplir con las reglas de seguridad del SaaS
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'fidelizapro-saas';
 
 /**
  * Dashboard del Cliente / Tarjeta Digital (Ruta: /customer)
@@ -21,35 +24,35 @@ export default function CustomerDashboard() {
   const [businessRewards, setBusinessRewards] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // 1. Proteger ruta
+  // 1. Proteger ruta: si no hay usuario, enviar al directorio
   useEffect(() => {
     if (!authLoading && !user) router.push('/directory');
   }, [user, authLoading, router]);
 
-  // 2. Cargar todas las tarjetas de fidelidad del usuario
+  // 2. Cargar todas las tarjetas de fidelidad del usuario (Ruta corregida)
   useEffect(() => {
     if (!user) return;
 
-    const cardsQuery = query(
-      collection(db, 'loyalty_cards'),
-      where('customerId', '==', user.uid)
-    );
+    const cardsRef = collection(db, 'artifacts', appId, 'public', 'data', 'loyalty_cards');
+    const cardsQuery = query(cardsRef, where('customerId', '==', user.uid));
 
     const unsubscribe = onSnapshot(cardsQuery, (snapshot) => {
       const cardsList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setMyCards(cardsList);
       
-      // Si no hay tarjeta seleccionada y tiene al menos una, seleccionamos la primera
       if (!selectedCardId && cardsList.length > 0) {
         setSelectedCardId(cardsList[0].id);
       }
+      setLoading(false);
+    }, (err) => {
+      console.error("Error en onSnapshot de tarjetas:", err);
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, [user, selectedCardId]);
 
-  // 3. Cargar datos del negocio activo (para recompensas y geolocalización)
+  // 3. Cargar datos del negocio activo y sus recompensas (Rutas corregidas)
   const activeCard = myCards.find(c => c.id === selectedCardId);
 
   useEffect(() => {
@@ -57,15 +60,17 @@ export default function CustomerDashboard() {
 
     const fetchBusinessAndRewards = async () => {
       try {
-        // Datos del negocio
-        const bRef = doc(db, 'businesses', activeCard.businessId);
+        // Datos del negocio específico
+        const bRef = doc(db, 'artifacts', appId, 'public', 'data', 'businesses', activeCard.businessId);
         const bSnap = await getDoc(bRef);
         if (bSnap.exists()) {
           setBusinessInfo({ id: bSnap.id, ...bSnap.data() });
         }
 
-        // Recompensas del negocio
-        const rQuery = query(collection(db, 'rewards'), where('businessId', '==', activeCard.businessId));
+        // Recompensas del negocio específico
+        const rRef = collection(db, 'artifacts', appId, 'public', 'data', 'rewards');
+        const rQuery = query(rRef, where('businessId', '==', activeCard.businessId));
+        
         onSnapshot(rQuery, (rSnap) => {
           setBusinessRewards(rSnap.docs.map(d => ({ id: d.id, ...d.data() })));
         });
@@ -78,7 +83,7 @@ export default function CustomerDashboard() {
     fetchBusinessAndRewards();
   }, [activeCard]);
 
-  // 4. Integración del Hook de Geolocalización (Geofencing)
+  // 4. Integración de Geolocalización para alertas de proximidad
   const targetLocation = businessInfo ? { 
     lat: businessInfo.lat, 
     lng: businessInfo.lng, 
@@ -86,16 +91,14 @@ export default function CustomerDashboard() {
   } : null;
 
   useGeolocation(targetLocation, (distance) => {
-    // Este callback se ejecuta cuando el cliente entra en el radio del negocio
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification(`¡Estás cerca de ${businessInfo.name}!`, {
-        body: `Tienes ${activeCard?.points || 0} puntos acumulados. ¡Entra y aprovecha tus recompensas!`,
-        icon: '/icons/icon-192x192.png' // Asegúrate de tener este icono en tu carpeta public
+        body: `Tienes ${activeCard?.points || 0} puntos. ¡Entra y canjea tus premios!`,
+        icon: '/icons/icon-192x192.png'
       });
     }
   });
 
-  // Utilidad para generar la URL de la imagen del QR (usando API externa pública)
   const generateQRUrl = (data) => {
     return `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(data)}&margin=10`;
   };
@@ -108,14 +111,13 @@ export default function CustomerDashboard() {
     );
   }
 
-  // Si el usuario no tiene ninguna tarjeta
   if (myCards.length === 0) {
     return (
       <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 text-center">
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 max-w-sm w-full">
           <Store size={64} className="text-slate-300 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Aún no tienes tarjetas</h2>
-          <p className="text-slate-500 mb-8">Explora nuestro directorio de negocios y únete a sus programas de fidelidad para empezar a sumar puntos.</p>
+          <p className="text-slate-500 mb-8">Explora comercios y únete a sus programas para empezar a sumar puntos.</p>
           <Button fullWidth onClick={() => router.push('/directory')}>
             Explorar Negocios
           </Button>
@@ -126,10 +128,8 @@ export default function CustomerDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-100 flex flex-col items-center pt-8 pb-24 px-4 font-sans">
-      
       <div className="w-full max-w-md">
         
-        {/* Cabecera */}
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-extrabold text-slate-800">Mi Billetera</h1>
           <button onClick={() => router.push('/directory')} className="text-indigo-600 font-bold text-sm hover:underline">
@@ -137,7 +137,6 @@ export default function CustomerDashboard() {
           </button>
         </div>
 
-        {/* Selector de Tarjetas (Si tiene más de una) */}
         {myCards.length > 1 && (
           <div className="mb-6 overflow-x-auto flex gap-2 pb-2 hide-scrollbar">
             {myCards.map(c => (
@@ -146,8 +145,8 @@ export default function CustomerDashboard() {
                 onClick={() => setSelectedCardId(c.id)}
                 className={`px-5 py-2.5 rounded-full whitespace-nowrap font-bold text-sm transition-all shadow-sm ${
                   selectedCardId === c.id 
-                    ? 'bg-indigo-600 text-white border-transparent' 
-                    : 'bg-white text-slate-600 border border-slate-200 hover:border-indigo-300'
+                    ? 'bg-indigo-600 text-white' 
+                    : 'bg-white text-slate-600 border border-slate-200'
                 }`}
               >
                 {c.businessName}
@@ -156,114 +155,75 @@ export default function CustomerDashboard() {
           </div>
         )}
 
-        {/* La Tarjeta Digital (Visual) */}
         {activeCard && (
           <div className="bg-gradient-to-br from-slate-900 to-indigo-900 rounded-[2rem] p-8 shadow-2xl text-white relative overflow-hidden mb-8">
-            
-            {/* Decoración de fondo */}
             <div className="absolute top-0 right-0 w-48 h-48 bg-white opacity-5 rounded-full -mr-16 -mt-16 pointer-events-none"></div>
-            <div className="absolute bottom-0 left-0 w-32 h-32 bg-indigo-500 opacity-20 rounded-full -ml-10 -mb-10 pointer-events-none"></div>
             
             <div className="flex justify-between items-start mb-8 relative z-10">
               <div className="pr-4">
-                <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-1.5 opacity-80">Tarjeta de Fidelidad</p>
+                <p className="text-indigo-200 text-xs font-bold uppercase tracking-widest mb-1.5 opacity-80">Tarjeta Digital</p>
                 <h2 className="text-2xl font-extrabold leading-tight">{activeCard.businessName}</h2>
                 <p className="text-slate-300 text-sm mt-1 flex items-center gap-1">
-                  <MapPin size={12} /> {businessInfo?.address || 'Cargando dirección...'}
+                  <MapPin size={12} /> {businessInfo?.address || 'Cargando ubicación...'}
                 </p>
               </div>
               <div className="bg-white p-1.5 rounded-2xl shrink-0 shadow-lg">
-                {/* QR Code: Representa el UID del cliente para que el negocio lo escanee */}
-                <img 
-                  src={generateQRUrl(user.uid)} 
-                  alt="Tu Código QR" 
-                  className="w-20 h-20 md:w-24 md:h-24 rounded-xl object-contain" 
-                />
+                <img src={generateQRUrl(user.uid)} alt="QR" className="w-20 h-20 md:w-24 md:h-24 rounded-xl" />
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 border-t border-white/10 pt-6 relative z-10">
               <div>
-                <p className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Puntos Acumulados</p>
-                <p className="text-4xl font-extrabold text-amber-400 drop-shadow-sm">{activeCard.points}</p>
+                <p className="text-slate-400 text-xs uppercase font-bold mb-1">Puntos</p>
+                <p className="text-4xl font-extrabold text-amber-400">{activeCard.points}</p>
               </div>
               <div>
-                <p className="text-slate-400 text-xs uppercase font-bold tracking-wider mb-1">Visitas Totales</p>
-                <p className="text-4xl font-extrabold text-emerald-400 drop-shadow-sm">{activeCard.visits}</p>
+                <p className="text-slate-400 text-xs uppercase font-bold mb-1">Visitas</p>
+                <p className="text-4xl font-extrabold text-emerald-400">{activeCard.visits}</p>
               </div>
             </div>
 
             <div className="mt-8 text-center border-t border-white/5 pt-4 relative z-10">
-              <p className="text-[10px] text-white/30 font-mono tracking-widest">
-                ID CLIENTE: {user.uid}
-              </p>
+              <p className="text-[10px] text-white/30 font-mono tracking-widest">ID: {user.uid}</p>
             </div>
           </div>
         )}
 
-        {/* Sección de Recompensas */}
         <div>
           <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-            <Award className="text-indigo-600" size={20} /> 
-            Tus Recompensas
+            <Award className="text-indigo-600" size={20} /> Recompensas
           </h3>
-          
           <div className="space-y-3">
             {businessRewards.map(r => {
-              // Calculamos el progreso basado en si la condición es por visitas o puntos
               const currentValue = r.conditionType === 'visits' ? activeCard.visits : activeCard.points;
               const isUnlocked = currentValue >= r.conditionValue;
-              const progressPercentage = Math.min((currentValue / r.conditionValue) * 100, 100);
+              const progress = Math.min((currentValue / r.conditionValue) * 100, 100);
 
               return (
-                <div key={r.id} className={`p-5 rounded-2xl border transition-all ${
-                  isUnlocked 
-                    ? 'bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-200 shadow-sm' 
-                    : 'bg-white border-slate-200 shadow-sm'
-                }`}>
+                <div key={r.id} className={`p-5 rounded-2xl border ${isUnlocked ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200 shadow-sm'}`}>
                   <div className="flex justify-between items-start mb-3">
-                    <h4 className={`font-bold pr-4 ${isUnlocked ? 'text-emerald-900' : 'text-slate-800'}`}>
-                      {r.title}
-                    </h4>
-                    
+                    <h4 className={`font-bold ${isUnlocked ? 'text-emerald-900' : 'text-slate-800'}`}>{r.title}</h4>
                     {isUnlocked ? (
-                      <span className="bg-emerald-500 text-white text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1 shrink-0 shadow-sm">
-                        <CheckCircle2 size={12} /> Disponible
+                      <span className="bg-emerald-500 text-white text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1">
+                        <CheckCircle2 size={12} /> Listo
                       </span>
                     ) : (
-                      <span className="text-slate-500 text-xs font-bold shrink-0 bg-slate-100 px-2 py-1 rounded-lg">
-                        {currentValue} / {r.conditionValue} {r.conditionType === 'visits' ? 'visitas' : 'pts'}
+                      <span className="text-slate-500 text-xs font-bold bg-slate-100 px-2 py-1 rounded-lg">
+                        {currentValue}/{r.conditionValue} {r.conditionType === 'visits' ? 'visitas' : 'pts'}
                       </span>
                     )}
                   </div>
-                  
-                  {/* Barra de Progreso */}
                   {!isUnlocked && (
-                    <div className="w-full bg-slate-100 rounded-full h-2.5 mt-2 overflow-hidden border border-slate-200/50">
-                      <div 
-                        className="bg-indigo-500 h-full rounded-full transition-all duration-700 ease-out" 
-                        style={{ width: `${progressPercentage}%` }}
-                      ></div>
+                    <div className="w-full bg-slate-100 rounded-full h-2 mt-2">
+                      <div className="bg-indigo-500 h-full rounded-full" style={{ width: `${progress}%` }}></div>
                     </div>
                   )}
-
-                  {isUnlocked && (
-                    <p className="text-sm text-emerald-700 font-medium mt-1">
-                      ¡Muéstrale tu QR al cajero para canjearlo!
-                    </p>
-                  )}
+                  {isUnlocked && <p className="text-xs text-emerald-700 font-medium mt-1">¡Canjéalo en el mostrador!</p>}
                 </div>
               );
             })}
-
-            {businessRewards.length === 0 && (
-              <div className="text-center p-6 bg-white rounded-2xl border border-slate-200 border-dashed">
-                <p className="text-slate-500 text-sm font-medium">Este comercio aún no ha publicado recompensas.</p>
-              </div>
-            )}
           </div>
         </div>
-
       </div>
     </div>
   );
