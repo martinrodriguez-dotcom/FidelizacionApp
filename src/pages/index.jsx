@@ -54,7 +54,7 @@ const FeatureIcon = ({ icon: Icon, label }) => (
 const Button = ({ children, onClick, variant = 'primary', fullWidth = false }) => {
   const base = "px-8 py-5 rounded-[2rem] font-black transition-all flex items-center justify-center gap-3 active:scale-95 text-sm uppercase tracking-widest group";
   const variants = {
-    primary: "bg-rosa-500 text-white hover:bg-rosa-600 shadow-2xl shadow-rosa-200",
+    primary: "bg-rosa-500 text-white hover:bg-rosa-600 shadow-2xl shadow-rosa-100",
     dark: "bg-slate-900 text-white hover:bg-black shadow-2xl shadow-slate-200",
   };
   return (
@@ -80,7 +80,6 @@ export default function HomePage() {
       } catch (err) { console.error("Error Auth:", err); }
     };
     initAuth();
-
     const unsubscribe = onAuthStateChanged(auth, setUser);
     return () => unsubscribe();
   }, []);
@@ -101,14 +100,14 @@ export default function HomePage() {
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-rosa-50">
       <div className="w-12 h-12 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin"></div>
-      <p className="text-rosa-400 font-black uppercase tracking-widest text-[10px] mt-4">Cargando Dulce Sal</p>
+      <p className="text-rosa-400 font-black uppercase tracking-widest text-[10px] mt-4 tracking-[0.4em]">Dulce Sal</p>
     </div>
   );
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans relative overflow-hidden">
       
-      {/* Decoración Rosa de Fondo */}
+      {/* Elementos decorativos de fondo */}
       <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-rosa-100/40 rounded-full blur-[120px] pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-rosa-200/20 rounded-full blur-[120px] pointer-events-none"></div>
 
