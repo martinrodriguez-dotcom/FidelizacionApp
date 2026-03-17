@@ -44,8 +44,8 @@ const db = getFirestore(app);
 const appIdSaaS = "dulce-sal-app"; 
 const DULCE_SAL_ID = "dulce-sal-id"; 
 
-const StatCard = ({ title, value, icon, color = "indigo", subtitle }) => (
-  <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-xl hover:shadow-slate-200/50 transition-all duration-300 group">
+const StatCard = ({ title, value, icon, color = "rosa", subtitle }) => (
+  <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-xl hover:shadow-rosa-100/50 transition-all duration-300 group">
     <div className="flex justify-between items-start">
       <div>
         <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2">{title}</p>
@@ -95,7 +95,6 @@ export default function AdminDashboard() {
     const customersRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards');
 
     const unsubCustomers = onSnapshot(customersRef, (snap) => {
-      // Filtrado para cumplir con las reglas de firebase en este entorno
       const list = snap.docs
         .map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(c => c.businessId === DULCE_SAL_ID);
@@ -125,18 +124,18 @@ export default function AdminDashboard() {
 
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-      <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <div className="w-12 h-12 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin mb-4"></div>
       <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando Panel Dulce Sal</p>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-indigo-100">
+    <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-rosa-100">
       
       {/* SIDEBAR LATERAL */}
       <aside className="w-72 bg-white border-r border-slate-100 hidden lg:flex flex-col p-8 sticky top-0 h-screen">
         <div className="mb-12 flex items-center gap-4">
-          <div className="bg-indigo-600 p-3 rounded-2xl text-white shadow-lg shadow-indigo-100">
+          <div className="bg-rosa-500 p-3 rounded-2xl text-white shadow-lg shadow-rosa-100">
             <Store size={24} />
           </div>
           <div>
@@ -148,7 +147,7 @@ export default function AdminDashboard() {
         <nav className="space-y-3 flex-1">
           <button 
             onClick={() => window.location.href = '/admin'}
-            className="w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] bg-indigo-600 text-white font-bold text-sm shadow-xl shadow-indigo-100 transition-all"
+            className="w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] bg-rosa-500 text-white font-bold text-sm shadow-xl shadow-rosa-100 transition-all"
           >
             <div className="flex items-center gap-3">
               <LayoutDashboard size={18} /> Dashboard
@@ -158,23 +157,23 @@ export default function AdminDashboard() {
           
           <button 
             onClick={() => window.location.href = '/admin/customers'}
-            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group"
+            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group"
           >
-            <Users size={18} className="group-hover:text-indigo-500" /> Clientes
+            <Users size={18} className="group-hover:text-rosa-500" /> Clientes
           </button>
           
           <button 
             onClick={() => window.location.href = '/admin/rewards'}
-            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group"
+            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group"
           >
-            <Award size={18} className="group-hover:text-amber-500" /> Configurar Premios
+            <Award size={18} className="group-hover:text-rosa-500" /> Configurar Premios
           </button>
 
           <button 
             onClick={() => window.location.href = '/admin/campaigns'}
-            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-slate-50 hover:text-slate-600 font-bold text-sm transition-all group"
+            className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group"
           >
-            <Bell size={18} className="group-hover:text-pink-500" /> Campañas Push
+            <Bell size={18} className="group-hover:text-rosa-500" /> Campañas Push
           </button>
         </nav>
 
@@ -198,7 +197,7 @@ export default function AdminDashboard() {
           
           <header className="flex flex-col md:flex-row justify-between md:items-center gap-6 mb-12">
             <div>
-              <div className="flex items-center gap-2 text-indigo-600 mb-2">
+              <div className="flex items-center gap-2 text-rosa-500 mb-2">
                 <Calendar size={14} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
                   {new Date().toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
@@ -211,7 +210,7 @@ export default function AdminDashboard() {
             <div className="flex items-center gap-3">
               <button 
                 onClick={() => window.location.href = '/'}
-                className="bg-white border border-slate-200 text-slate-600 px-6 py-3.5 rounded-2xl font-bold text-sm hover:bg-slate-50 transition-all flex items-center gap-2 shadow-sm"
+                className="bg-white border border-slate-200 text-slate-600 px-6 py-3.5 rounded-2xl font-bold text-sm hover:bg-rosa-50 transition-all flex items-center gap-2 shadow-sm"
               >
                 Ver Portal Público
               </button>
@@ -229,7 +228,7 @@ export default function AdminDashboard() {
               title="Comunidad Dulce Sal" 
               value={customers.length} 
               icon={<Users size={24}/>} 
-              color="indigo"
+              color="rosa"
               subtitle="Clientes únicos registrados"
             />
             <StatCard 
@@ -261,12 +260,12 @@ export default function AdminDashboard() {
                   <input 
                     type="text" 
                     placeholder="Buscar por nombre o cel..."
-                    className="pl-12 pr-6 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 font-medium text-sm w-full md:w-64 transition-all"
+                    className="pl-12 pr-6 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-medium text-sm w-full md:w-64 transition-all"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
-                <button className="p-3 bg-slate-50 text-slate-400 rounded-2xl border border-slate-100 hover:text-indigo-600 transition-colors">
+                <button className="p-3 bg-slate-50 text-slate-400 rounded-2xl border border-slate-100 hover:text-rosa-500 transition-colors">
                   <Filter size={20} />
                 </button>
               </div>
@@ -296,10 +295,10 @@ export default function AdminDashboard() {
                       </td>
                     </tr>
                   ) : filteredCustomers.map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50/80 transition-all group">
+                    <tr key={c.id} className="hover:bg-rosa-50/30 transition-all group">
                       <td className="px-10 py-6">
                         <div className="flex items-center gap-4">
-                          <div className="w-10 h-10 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center font-black text-xs group-hover:bg-indigo-600 group-hover:text-white transition-colors">
+                          <div className="w-10 h-10 bg-rosa-50 text-rosa-500 rounded-xl flex items-center justify-center font-black text-xs group-hover:bg-rosa-500 group-hover:text-white transition-colors">
                             {c.customerName?.charAt(0)}
                           </div>
                           <div>
@@ -329,7 +328,7 @@ export default function AdminDashboard() {
                           <div className="w-px h-8 bg-slate-100"></div>
                           <div className="text-center">
                             <p className="text-[9px] font-black text-slate-300 uppercase mb-0.5 tracking-tighter">Puntos</p>
-                            <p className="font-black text-indigo-600">{c.points || 0}</p>
+                            <p className="font-black text-rosa-500">{c.points || 0}</p>
                           </div>
                         </div>
                       </td>
