@@ -1,263 +1,260 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { 
-  getFirestore, 
-  doc, 
-  onSnapshot, 
-  setDoc 
-} from 'firebase/firestore';
+import { getFirestore, doc, onSnapshot } from 'firebase/firestore';
 import { 
   getAuth, 
   onAuthStateChanged, 
-  signInAnonymously, 
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword 
+  signInAnonymously,
+  signInWithCustomToken 
 } from 'firebase/auth';
 import { 
   Store, 
   User, 
   MapPin, 
   Sparkles, 
-  Download, 
   LayoutDashboard, 
-  Heart 
+  Heart,
+  ChevronRight,
+  Star,
+  Coffee,
+  Gift,
+  Smartphone,
+  ShieldCheck,
+  Zap
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = {
-  apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
-  authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
-  projectId: "fidelizacionapp-d3e8e",
-  storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
-  messagingSenderId: "86470097031",
-  appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
-};
+// Asegúrate de que estas credenciales coincidan con tu consola de Firebase
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
+      authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
+      projectId: "fidelizacionapp-d3e8e",
+      storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
+      messagingSenderId: "86470097031",
+      appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
+    };
 
+// Inicialización de Firebase con patrón Singleton para Next.js
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Identificadores fijos unificados para Dulce Sal
-const appIdSaaS = "dulce-sal-app"; 
+// Identificadores del Proyecto Dulce Sal
+const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
+const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
 const DULCE_SAL_ID = "dulce-sal-id"; 
 
-// --- COMPONENTES UI AUXILIARES ---
-const Input = ({ label, type = "text", value, onChange, placeholder, required = false }) => (
-  <div className="w-full space-y-1">
-    {label && <label className="text-[10px] font-black uppercase text-slate-400 ml-2 tracking-widest">{label}</label>}
-    <input
-      type={type}
-      placeholder={placeholder}
-      value={value}
-      onChange={onChange}
-      required={required}
-      className="w-full px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all font-bold text-slate-700"
-    />
+// --- COMPONENTES DE INTERFAZ (UI) ---
+
+/**
+ * Icono de característica con efectos de hover en rosa
+ */
+const FeatureIcon = ({ icon: Icon, label }) => (
+  <div className="flex flex-col items-center gap-3 group">
+    <div className="w-16 h-16 bg-white rounded-[1.5rem] shadow-sm border border-rosa-100 flex items-center justify-center text-rosa-500 group-hover:scale-110 group-hover:bg-rosa-500 group-hover:text-white transition-all duration-500 shadow-rosa-100/20 group-hover:shadow-rosa-200">
+      <Icon size={28} />
+    </div>
+    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 group-hover:text-rosa-600 transition-colors">
+      {label}
+    </span>
   </div>
 );
 
-const Button = ({ children, onClick, variant = 'primary', fullWidth = false, disabled = false, type = "button" }) => {
-  const base = "px-6 py-4 rounded-2xl font-black transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50";
+/**
+ * Botón principal estilizado con los colores de la marca
+ */
+const Button = ({ children, onClick, variant = 'primary', fullWidth = false }) => {
+  const base = "px-8 py-5 rounded-[2.2rem] font-black transition-all flex items-center justify-center gap-4 active:scale-95 text-sm uppercase tracking-[0.15em] group overflow-hidden relative";
   const variants = {
-    primary: "bg-indigo-600 text-white hover:bg-indigo-700 shadow-xl shadow-indigo-100",
-    dark: "bg-slate-900 text-white hover:bg-black shadow-xl",
-    outline: "bg-white text-slate-600 border border-slate-200 hover:bg-slate-50"
+    primary: "bg-rosa-500 text-white hover:bg-rosa-600 shadow-2xl shadow-rosa-200/50",
+    dark: "bg-slate-900 text-white hover:bg-black shadow-2xl shadow-slate-300",
   };
+  
   return (
-    <button type={type} onClick={onClick} disabled={disabled} className={`${base} ${variants[variant]} ${fullWidth ? 'w-full' : ''}`}>
-      {children}
+    <button onClick={onClick} className={`${base} ${variants[variant]} ${fullWidth ? 'w-full' : ''}`}>
+      <div className="absolute inset-0 bg-white/10 translate-y-full group-hover:translate-y-0 transition-transform duration-300"></div>
+      <span className="relative z-10 flex items-center gap-3 w-full justify-center">
+        {children}
+      </span>
     </button>
   );
 };
 
+// --- PÁGINA PRINCIPAL ---
+
 export default function HomePage() {
   const [user, setUser] = useState(null);
   const [business, setBusiness] = useState(null);
-  const [view, setView] = useState('loading'); 
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  // 1. Manejo de Autenticación
+  // 1. Manejo de la sesión (Auth)
   useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Error en autenticación inicial:", err);
+      }
+    };
+    initAuth();
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) {
-        signInAnonymously(auth);
-      }
     });
     return () => unsubscribe();
   }, []);
 
-  // 2. Detección de Negocio Dulce Sal
+  // 2. Carga de los datos del negocio desde Firestore
   useEffect(() => {
     if (!user) return;
 
     const businessDocRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'businesses', DULCE_SAL_ID);
-
-    const unsubscribeBusiness = onSnapshot(businessDocRef, (snap) => {
+    const unsub = onSnapshot(businessDocRef, (snap) => {
       if (snap.exists()) {
         setBusiness(snap.data());
-        setView('main');
-      } else {
-        setView('setup');
       }
       setLoading(false);
     }, (err) => {
-      console.error("Firestore Error:", err);
-      setError("Error de permisos en Firestore.");
+      console.error("Error al obtener datos del negocio:", err);
       setLoading(false);
     });
-
-    return () => unsubscribeBusiness();
+    
+    return () => unsub();
   }, [user]);
 
-  // --- Lógica de Configuración Inicial (Setup) ---
-  const [setupData, setSetupData] = useState({ address: '', lat: '', lng: '', radius: '200' });
-  
-  const handleSetup = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const autoEmail = "admin@dulcesal.com";
-      const autoPass = "dulcesal123";
-      
-      let finalUser = user;
-      try {
-        const cred = await createUserWithEmailAndPassword(auth, autoEmail, autoPass);
-        finalUser = cred.user;
-      } catch (e) {
-        try {
-          const cred = await signInWithEmailAndPassword(auth, autoEmail, autoPass);
-          finalUser = cred.user;
-        } catch (innerError) {
-          console.error("Auth Error:", innerError);
-        }
-      }
-
-      const businessDocRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'businesses', DULCE_SAL_ID);
-      await setDoc(businessDocRef, {
-        name: "Dulce Sal",
-        address: setupData.address,
-        lat: parseFloat(setupData.lat) || 0,
-        lng: parseFloat(setupData.lng) || 0,
-        radius: parseInt(setupData.radius) || 200,
-        ownerId: finalUser?.uid || '',
-        adminEmail: autoEmail,
-        createdAt: new Date().toISOString()
-      });
-    } catch (err) {
-      console.error(err);
-      setError("No se pudo configurar el negocio.");
-    } finally {
-      setLoading(false);
+  /**
+   * Navegación controlada
+   */
+  const navigateTo = (path) => {
+    if (typeof window !== 'undefined') {
+      window.location.href = path;
     }
   };
 
-  if (view === 'loading' || loading) {
-    return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
-        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando Dulce Sal</p>
+  // Pantalla de carga (Splash Screen)
+  if (loading) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-rosa-50">
+      <div className="relative">
+        <div className="w-16 h-16 border-4 border-rosa-200 rounded-full animate-pulse"></div>
+        <div className="w-16 h-16 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin absolute top-0 left-0"></div>
       </div>
-    );
-  }
-
-  // --- VISTA A: CONFIGURACIÓN INICIAL ---
-  if (view === 'setup') {
-    return (
-      <div className="min-h-screen bg-indigo-600 flex items-center justify-center p-6 font-sans">
-        <div className="bg-white p-10 rounded-[3rem] shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-500">
-          <div className="text-center mb-8">
-            <div className="bg-indigo-50 w-20 h-20 rounded-3xl flex items-center justify-center mx-auto mb-4 rotate-3 shadow-inner">
-              <Sparkles className="text-indigo-600" size={40} />
-            </div>
-            <h1 className="text-3xl font-black text-slate-800 tracking-tighter">Dulce Sal</h1>
-            <p className="text-slate-400 font-medium mt-1">Configuración Inicial</p>
-          </div>
-
-          <form onSubmit={handleSetup} className="space-y-5">
-            <Input 
-              label="Dirección del Local" 
-              placeholder="Ej: Av. Santa Fe 1234"
-              value={setupData.address}
-              onChange={e => setSetupData({...setupData, address: e.target.value})}
-              required
-            />
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Latitud" value={setupData.lat} onChange={e => setSetupData({...setupData, lat: e.target.value})} required />
-              <Input label="Longitud" value={setupData.lng} onChange={e => setSetupData({...setupData, lng: e.target.value})} required />
-            </div>
-            <Input label="Radio de Alerta (m)" type="number" value={setupData.radius} onChange={e => setSetupData({...setupData, radius: e.target.value})} required />
-            
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 text-[10px] text-slate-400 font-medium leading-relaxed">
-              <p className="font-black uppercase text-indigo-600 mb-1 tracking-widest">Credenciales Admin:</p>
-              Email: admin@dulcesal.com <br/> Pass: dulcesal123
-            </div>
-
-            <Button type="submit" fullWidth disabled={loading}>
-              {loading ? 'Configurando...' : 'Crear Aplicación Dulce Sal'}
-            </Button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  // --- VISTA B: PORTAL PRINCIPAL DULCE SAL ---
-  const registerUrl = typeof window !== 'undefined' ? `${window.location.origin}/customer` : '';
-  const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(registerUrl)}&margin=20`;
+      <p className="text-rosa-500 font-black uppercase tracking-[0.4em] text-[11px] mt-8 animate-bounce">
+        Dulce Sal
+      </p>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans selection:bg-indigo-100">
-      <div className="bg-white p-12 rounded-[3.5rem] shadow-2xl shadow-indigo-100/50 border border-slate-100 max-w-lg w-full text-center relative overflow-hidden animate-in fade-in zoom-in duration-500">
-        
-        <div className="absolute -top-24 -left-24 w-64 h-64 bg-indigo-50 rounded-full blur-3xl opacity-50"></div>
-
-        <div className="relative z-10">
-          <div className="bg-indigo-600 w-24 h-24 rounded-[2.5rem] flex items-center justify-center mx-auto mb-8 rotate-3 shadow-xl shadow-indigo-200">
-            <Store className="text-white" size={48} />
-          </div>
-          
-          <h1 className="text-5xl font-black text-slate-900 mb-2 tracking-tighter italic">Dulce Sal</h1>
-          <p className="text-slate-400 font-bold uppercase tracking-[0.2em] text-[10px] mb-10 flex items-center justify-center gap-2">
-            <MapPin size={12} className="text-indigo-500" /> {business?.address}
-          </p>
-
-          <div className="grid grid-cols-1 gap-4 mb-10">
-            <Button fullWidth onClick={() => window.location.href = '/customer'}>
-              <User size={22} /> Soy Cliente / Mis Puntos
-            </Button>
-            
-            <Button variant="dark" fullWidth onClick={() => window.location.href = '/admin'}>
-              <LayoutDashboard size={22} /> Panel de Administración
-            </Button>
-          </div>
-
-          <div className="pt-10 border-t border-slate-100">
-            <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest mb-6">QR del Mostrador</h3>
-            <div className="bg-slate-50 p-6 rounded-[2.5rem] border-2 border-dashed border-slate-200 inline-block mb-6">
-              <img src={qrCodeUrl} alt="QR Local" className="w-48 h-48 rounded-2xl shadow-sm" />
-            </div>
-            <p className="text-[11px] text-slate-500 font-medium mb-6 px-4">
-              Imprime este código. Los clientes lo escanearán para sumarse a tu programa.
-            </p>
-            <a 
-              href={qrCodeUrl} 
-              target="_blank" 
-              rel="noreferrer"
-              className="inline-flex items-center gap-2 bg-indigo-50 text-indigo-600 px-8 py-3 rounded-2xl text-xs font-black hover:bg-indigo-100 transition-all active:scale-95 shadow-sm"
-            >
-              <Download size={16} /> Descargar QR
-            </a>
-          </div>
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans selection:bg-rosa-100 selection:text-rosa-900 relative overflow-hidden">
+      
+      {/* --- ELEMENTOS DE DISEÑO DE FONDO (BG DECOR) --- */}
+      <div className="fixed top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
+        <div className="absolute top-[-15%] left-[-10%] w-[60%] h-[60%] bg-rosa-100/30 rounded-full blur-[120px] animate-pulse"></div>
+        <div className="absolute bottom-[-15%] right-[-10%] w-[60%] h-[60%] bg-rosa-200/20 rounded-full blur-[150px]"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full opacity-[0.03] pointer-events-none">
+            <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+                        <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#ec4899" strokeWidth="1"/>
+                    </pattern>
+                </defs>
+                <rect width="100%" height="100%" fill="url(#grid)" />
+            </svg>
         </div>
       </div>
-      
-      <div className="mt-12 flex items-center gap-3 opacity-20">
-        <Heart className="text-slate-900" size={14} />
-        <p className="text-[10px] font-black uppercase tracking-[0.5em] text-slate-900 italic">
-          Dulce Sal Experience
-        </p>
+
+      {/* --- TARJETA PRINCIPAL (MAIN CARD) --- */}
+      <div className="bg-white p-12 md:p-20 rounded-[5rem] shadow-[0_50px_100px_-20px_rgba(236,72,153,0.15)] border border-slate-100 max-w-xl w-full text-center relative z-10 animate-in fade-in zoom-in slide-in-from-bottom-8 duration-1000 ease-out">
+        
+        {/* Cabecera / Identidad */}
+        <header className="mb-16">
+          <div className="relative inline-block mb-12 group cursor-default">
+            {/* Efecto de resplandor rosa */}
+            <div className="absolute inset-0 bg-rosa-500 blur-3xl opacity-20 group-hover:opacity-50 transition-all duration-700"></div>
+            
+            <div className="bg-rosa-500 w-32 h-32 rounded-[3.5rem] flex items-center justify-center relative z-10 shadow-2xl shadow-rosa-300 rotate-6 group-hover:rotate-0 group-hover:scale-105 transition-all duration-500 border-4 border-white">
+              <Store className="text-white" size={64} />
+            </div>
+            
+            <div className="absolute -bottom-4 -right-4 bg-white p-3 rounded-2xl shadow-xl text-rosa-500 z-20 border border-rosa-50 scale-0 group-hover:scale-100 transition-transform duration-500 delay-100">
+                <Zap size={24} fill="currentColor" />
+            </div>
+          </div>
+          
+          <h1 className="text-7xl font-black text-slate-900 mb-5 tracking-tighter italic leading-none">
+            Dulce Sal
+          </h1>
+          
+          <div className="flex items-center justify-center gap-3 text-slate-400 font-bold uppercase tracking-[0.25em] text-[11px] bg-slate-50 py-3 px-8 rounded-3xl inline-flex border border-slate-100 shadow-inner">
+            <MapPin size={14} className="text-rosa-500" />
+            <span>{business?.address || 'Premium Loyalty Experience'}</span>
+          </div>
+        </header>
+
+        {/* Sección de Características (Features) */}
+        <div className="grid grid-cols-4 gap-6 mb-16 px-4">
+          <FeatureIcon icon={Star} label="Puntos" />
+          <FeatureIcon icon={Gift} label="Regalos" />
+          <FeatureIcon icon={Coffee} label="Club" />
+          <FeatureIcon icon={ShieldCheck} label="Seguro" />
+        </div>
+
+        {/* Acciones de Navegación */}
+        <div className="space-y-6 mb-16">
+          <Button fullWidth onClick={() => navigateTo('/customer')}>
+            <User size={22} className="group-hover:translate-x-1 transition-transform" /> 
+            <span className="flex-1 text-center">Entrar como Cliente</span>
+            <ChevronRight size={18} className="opacity-30 group-hover:opacity-100 transition-opacity" />
+          </Button>
+          
+          <Button variant="dark" fullWidth onClick={() => navigateTo('/admin')}>
+            <LayoutDashboard size={22} className="group-hover:rotate-12 transition-transform" /> 
+            <span className="flex-1 text-center">Acceso Administración</span>
+            <ChevronRight size={18} className="opacity-30 group-hover:opacity-100 transition-opacity" />
+          </Button>
+        </div>
+
+        {/* Pie de Página de la Marca (Brand Footer) */}
+        <footer className="pt-12 border-t border-slate-50 relative">
+          <div className="flex items-center justify-center gap-4 mb-8">
+            <Sparkles className="text-rosa-400" size={18} />
+            <p className="text-[11px] font-black uppercase tracking-[0.5em] text-slate-300">
+              Membresía VIP Exclusiva
+            </p>
+            <Sparkles className="text-rosa-400" size={18} />
+          </div>
+          
+          <div className="flex flex-col items-center gap-4">
+            <div className="flex items-center gap-2">
+              <Heart className="text-rosa-500 fill-rosa-500 animate-pulse" size={16} />
+              <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] italic">
+                Cuidamos cada detalle
+              </span>
+            </div>
+          </div>
+
+          {/* Iconos de PWA simulados */}
+          <div className="mt-10 flex justify-center gap-6 opacity-20">
+            <Smartphone size={20} className="text-slate-400" />
+            <div className="w-px h-5 bg-slate-200"></div>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest">
+                App Instalable
+            </p>
+          </div>
+        </footer>
+      </div>
+
+      {/* Versión de la Aplicación */}
+      <div className="mt-16 flex items-center gap-6 text-[10px] font-black uppercase tracking-[0.7em] text-slate-300 pointer-events-none opacity-50">
+        <div className="w-16 h-[2px] bg-gradient-to-r from-transparent to-slate-200"></div>
+        DULCE SAL LOYALTY v2.8
+        <div className="w-16 h-[2px] bg-gradient-to-l from-transparent to-slate-200"></div>
       </div>
     </div>
   );
