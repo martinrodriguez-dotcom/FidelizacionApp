@@ -8,7 +8,9 @@ import {
 import { 
   getAuth, 
   onAuthStateChanged,
-  signOut
+  signOut,
+  signInAnonymously,
+  signInWithCustomToken
 } from 'firebase/auth';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
@@ -23,39 +25,45 @@ import {
   ChevronRight,
   Search,
   Filter,
-  Bell
+  Bell,
+  UserPlus,
+  Download
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = {
-  apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
-  authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
-  projectId: "fidelizacionapp-d3e8e",
-  storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
-  messagingSenderId: "86470097031",
-  appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
-};
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
+      authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
+      projectId: "fidelizacionapp-d3e8e",
+      storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
+      messagingSenderId: "86470097031",
+      appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
+    };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Identificadores fijos para Dulce Sal
-const appIdSaaS = "dulce-sal-app"; 
+// Sanitización del ID de la aplicación para evitar errores de segmentos en Firestore
+const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
+const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
 const DULCE_SAL_ID = "dulce-sal-id"; 
 
-const StatCard = ({ title, value, icon, color = "rosa", subtitle }) => (
+// Componente de Tarjeta de Estadísticas refactorizado
+const StatCard = ({ title, value, icon: Icon, subtitle }) => (
   <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-xl hover:shadow-rosa-100/50 transition-all duration-300 group">
     <div className="flex justify-between items-start">
       <div>
         <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-2">{title}</p>
         <h3 className="text-4xl font-black text-slate-900 tracking-tight group-hover:scale-105 transition-transform origin-left">
-          {value}
+          {String(value)}
         </h3>
-        {subtitle && <p className="text-slate-400 text-[10px] mt-2 font-medium">{subtitle}</p>}
+        {subtitle && <p className="text-slate-400 text-[10px] mt-2 font-medium">{String(subtitle)}</p>}
       </div>
-      <div className={`p-4 rounded-2xl bg-${color}-50 text-${color}-600 group-hover:rotate-6 transition-transform`}>
-        {icon}
+      <div className="p-4 rounded-2xl bg-rosa-50 text-rosa-600 group-hover:rotate-6 transition-transform">
+        {Icon && <Icon size={24} />}
       </div>
     </div>
   </div>
@@ -67,31 +75,59 @@ export default function AdminDashboard() {
   const [customers, setCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [qrCodeUrl, setQrCodeUrl] = useState('#');
 
-  // 1. Verificación de sesión activa
+  // Función de navegación segura
+  const safeNavigate = (path) => {
+    if (typeof window !== 'undefined' && path) {
+      window.location.href = path;
+    }
+  };
+
+  // 1. Autenticación antes de cualquier consulta (Regla 3)
   useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth init error:", err);
+      }
+    };
+
+    initAuth();
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) {
-        window.location.href = '/';
+      if (!currentUser && !loading) {
+        safeNavigate('/');
       }
     });
-    return () => unsubscribe();
-  }, []);
 
-  // 2. Carga de datos del negocio y clientes
+    if (typeof window !== 'undefined') {
+      const registerUrl = `${window.location.origin}/customer`;
+      setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(registerUrl)}&margin=20`);
+    }
+
+    return () => unsubscribe();
+  }, [loading]);
+
+  // 2. Carga de datos con guardia de usuario (Regla 3)
   useEffect(() => {
     if (!user) return;
 
-    // A. Info del negocio
+    // Referencia al documento del negocio (6 segmentos: artifacts/appId/public/data/businesses/docId)
     const businessRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'businesses', DULCE_SAL_ID);
     const unsubBusiness = onSnapshot(businessRef, (snap) => {
       if (snap.exists()) {
         setBusiness(snap.data());
       }
-    });
+    }, (err) => console.error("Error loading business:", err));
 
-    // B. Lista de clientes
+    // Referencia a la colección de tarjetas (6 segmentos para el path base: artifacts/appId/public/data/loyalty_cards)
     const customersRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards');
 
     const unsubCustomers = onSnapshot(customersRef, (snap) => {
@@ -102,7 +138,7 @@ export default function AdminDashboard() {
       setCustomers(list.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)));
       setLoading(false);
     }, (err) => {
-      console.error("Error cargando base de clientes:", err);
+      console.error("Error loading customers:", err);
       setLoading(false);
     });
 
@@ -113,8 +149,12 @@ export default function AdminDashboard() {
   }, [user]);
 
   const handleLogout = async () => {
-    await signOut(auth);
-    window.location.href = '/';
+    try {
+      await signOut(auth);
+      safeNavigate('/');
+    } catch (err) {
+      console.error("Logout error:", err);
+    }
   };
 
   const filteredCustomers = customers.filter(c => 
@@ -122,10 +162,10 @@ export default function AdminDashboard() {
     c.customerPhone?.includes(searchTerm)
   );
 
-  if (loading) return (
+  if (loading && !user) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
       <div className="w-12 h-12 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-      <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando Panel Dulce Sal</p>
+      <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando Dulce Sal</p>
     </div>
   );
 
@@ -140,13 +180,13 @@ export default function AdminDashboard() {
           </div>
           <div>
             <h2 className="font-black text-slate-900 tracking-tighter text-2xl italic">Dulce Sal</h2>
-            <p className="text-[9px] font-black uppercase tracking-widest text-slate-400">Admin Console</p>
+            <p className="text-[9px] font-black uppercase tracking-widest text-rosa-400">Admin Console</p>
           </div>
         </div>
         
         <nav className="space-y-3 flex-1">
           <button 
-            onClick={() => window.location.href = '/admin'}
+            onClick={() => safeNavigate('/admin')}
             className="w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] bg-rosa-500 text-white font-bold text-sm shadow-xl shadow-rosa-100 transition-all"
           >
             <div className="flex items-center gap-3">
@@ -156,21 +196,21 @@ export default function AdminDashboard() {
           </button>
           
           <button 
-            onClick={() => window.location.href = '/admin/customers'}
+            onClick={() => safeNavigate('/admin/customers')}
             className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group"
           >
             <Users size={18} className="group-hover:text-rosa-500" /> Clientes
           </button>
           
           <button 
-            onClick={() => window.location.href = '/admin/rewards'}
+            onClick={() => safeNavigate('/admin/rewards')}
             className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group"
           >
             <Award size={18} className="group-hover:text-rosa-500" /> Configurar Premios
           </button>
 
           <button 
-            onClick={() => window.location.href = '/admin/campaigns'}
+            onClick={() => safeNavigate('/admin/campaigns')}
             className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group"
           >
             <Bell size={18} className="group-hover:text-rosa-500" /> Campañas Push
@@ -180,7 +220,7 @@ export default function AdminDashboard() {
         <div className="pt-8 border-t border-slate-50">
           <div className="bg-slate-50 p-4 rounded-2xl mb-4">
             <p className="text-[10px] font-black text-slate-400 uppercase mb-1">Usuario Admin</p>
-            <p className="text-xs font-bold text-slate-600 truncate">{user?.email}</p>
+            <p className="text-xs font-bold text-slate-600 truncate">{user?.email || 'Admin Conectado'}</p>
           </div>
           <button 
             onClick={handleLogout}
@@ -209,13 +249,13 @@ export default function AdminDashboard() {
             
             <div className="flex items-center gap-3">
               <button 
-                onClick={() => window.location.href = '/'}
+                onClick={() => safeNavigate('/')}
                 className="bg-white border border-slate-200 text-slate-600 px-6 py-3.5 rounded-2xl font-bold text-sm hover:bg-rosa-50 transition-all flex items-center gap-2 shadow-sm"
               >
                 Ver Portal Público
               </button>
               <button 
-                onClick={() => window.location.href = '/admin/scan'}
+                onClick={() => safeNavigate('/admin/scan')}
                 className="bg-slate-900 text-white px-8 py-3.5 rounded-2xl font-black text-sm shadow-xl hover:bg-black transition-all flex items-center gap-2 active:scale-95"
               >
                 <QrCode size={18} /> Escanear Cliente
@@ -227,31 +267,28 @@ export default function AdminDashboard() {
             <StatCard 
               title="Comunidad Dulce Sal" 
               value={customers.length} 
-              icon={<Users size={24}/>} 
-              color="rosa"
-              subtitle="Clientes únicos registrados"
+              icon={Users} 
+              subtitle="Clientes registrados"
             />
             <StatCard 
               title="Tráfico Total" 
               value={customers.reduce((acc,c) => acc + (c.visits || 0), 0)} 
-              icon={<TrendingUp size={24}/>} 
-              color="emerald"
-              subtitle="Visitas acumuladas históricas"
+              icon={TrendingUp} 
+              subtitle="Visitas acumuladas"
             />
             <StatCard 
-              title="Puntos en Circulación" 
+              title="Puntos Emitidos" 
               value={customers.reduce((acc,c) => acc + (c.points || 0), 0)} 
-              icon={<Award size={24}/>} 
-              color="amber"
-              subtitle="Puntos pendientes de canje"
+              icon={Award} 
+              subtitle="Pendientes de canje"
             />
           </div>
 
-          <section className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/40 overflow-hidden">
+          <section className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/40 overflow-hidden mb-12">
             <div className="p-10 border-b border-slate-50 flex flex-col md:flex-row justify-between items-md-center gap-6">
               <div>
                 <h3 className="font-black text-slate-900 text-2xl tracking-tight">Base de Clientes</h3>
-                <p className="text-slate-400 text-xs font-medium mt-1">Listado actualizado en tiempo real</p>
+                <p className="text-slate-400 text-xs font-medium mt-1">Actualizado en tiempo real</p>
               </div>
               
               <div className="flex items-center gap-4">
@@ -259,7 +296,7 @@ export default function AdminDashboard() {
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
                   <input 
                     type="text" 
-                    placeholder="Buscar por nombre o cel..."
+                    placeholder="Buscar nombre o cel..."
                     className="pl-12 pr-6 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-medium text-sm w-full md:w-64 transition-all"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
@@ -289,7 +326,7 @@ export default function AdminDashboard() {
                         <div className="max-w-xs mx-auto">
                           <Users className="text-slate-200 mx-auto mb-4" size={48} />
                           <p className="text-slate-400 font-bold text-sm italic">
-                            {searchTerm ? "No hay coincidencias para tu búsqueda." : "Aún no tienes clientes registrados. ¡Comparte tu código QR!"}
+                            {searchTerm ? "No hay coincidencias." : "Aún no hay clientes registrados."}
                           </p>
                         </div>
                       </td>
@@ -303,12 +340,12 @@ export default function AdminDashboard() {
                           </div>
                           <div>
                             <p className="font-black text-slate-900 leading-none mb-1.5 uppercase text-sm tracking-tight">{c.customerName}</p>
-                            <p className="text-[10px] text-slate-400 font-mono tracking-tighter italic">REG: {new Date(c.createdAt).toLocaleDateString()}</p>
+                            <p className="text-[10px] text-slate-400 font-mono italic">ID: {c.customerId.substring(0,8)}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-10 py-6">
-                        <a href={`https://wa.me/${c.customerPhone}`} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-600 font-bold hover:text-emerald-500 transition-colors flex items-center gap-1">
+                        <a href={`https://wa.me/${c.customerPhone}`} target="_blank" rel="noopener noreferrer" className="text-sm text-slate-600 font-bold hover:text-emerald-500 transition-colors">
                           {c.customerPhone}
                         </a>
                       </td>
@@ -322,18 +359,18 @@ export default function AdminDashboard() {
                       <td className="px-10 py-6 text-center">
                         <div className="flex items-center justify-center gap-4">
                           <div className="text-center">
-                            <p className="text-[9px] font-black text-slate-300 uppercase mb-0.5 tracking-tighter">Visitas</p>
+                            <p className="text-[9px] font-black text-slate-300 uppercase tracking-tighter">Visitas</p>
                             <p className="font-black text-emerald-500">{c.visits || 0}</p>
                           </div>
                           <div className="w-px h-8 bg-slate-100"></div>
                           <div className="text-center">
-                            <p className="text-[9px] font-black text-slate-300 uppercase mb-0.5 tracking-tighter">Puntos</p>
+                            <p className="text-[9px] font-black text-slate-300 uppercase tracking-tighter">Puntos</p>
                             <p className="font-black text-rosa-500">{c.points || 0}</p>
                           </div>
                         </div>
                       </td>
                       <td className="px-10 py-6 text-right">
-                        <button className="bg-slate-900 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all shadow-md shadow-slate-200">
+                        <button className="bg-slate-900 text-white px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-black transition-all">
                           Gestionar
                         </button>
                       </td>
@@ -342,19 +379,43 @@ export default function AdminDashboard() {
                 </tbody>
               </table>
             </div>
-            
-            <div className="p-8 bg-slate-50/50 text-center">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.3em]">Fin del Listado • Dulce Sal Loyalty</p>
+          </section>
+
+          {/* SECCIÓN QR MOSTRADOR */}
+          <section className="bg-rosa-500 rounded-[3rem] p-12 text-white flex flex-col md:flex-row items-center gap-12 shadow-2xl shadow-rosa-200 overflow-hidden relative">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -mr-20 -mt-20 blur-3xl"></div>
+            <div className="relative z-10 flex-1">
+              <div className="bg-white/20 w-16 h-16 rounded-2xl flex items-center justify-center mb-6">
+                <UserPlus size={32} />
+              </div>
+              <h2 className="text-3xl font-black mb-4 tracking-tighter italic">Código QR Mostrador</h2>
+              <p className="text-rosa-50 font-medium leading-relaxed max-w-md">
+                Imprime este código y colócalo en tu mostrador para que los clientes se registren al instante.
+              </p>
+              <div className="mt-8">
+                <a 
+                  href={qrCodeUrl !== '#' ? qrCodeUrl : undefined} 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="bg-white text-rosa-600 px-8 py-4 rounded-2xl font-black inline-flex items-center gap-2 hover:bg-rosa-50 transition-all shadow-xl"
+                >
+                  <Download size={20} /> Descargar QR
+                </a>
+              </div>
+            </div>
+            <div className="bg-white p-6 rounded-[2.5rem] shadow-2xl relative z-10">
+              {qrCodeUrl !== '#' ? (
+                <img src={qrCodeUrl} alt="QR Registro" className="w-48 h-48 rounded-2xl" />
+              ) : (
+                <div className="w-48 h-48 bg-slate-100 rounded-2xl flex items-center justify-center">
+                  <div className="w-8 h-8 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin"></div>
+                </div>
+              )}
             </div>
           </section>
 
         </div>
       </main>
-      
-      <style dangerouslySetInnerHTML={{ __html: `
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      ` }} />
     </div>
   );
 }
