@@ -7,7 +7,9 @@ import {
 } from 'firebase/firestore';
 import { 
   getAuth, 
-  onAuthStateChanged 
+  onAuthStateChanged,
+  signInAnonymously,
+  signInWithCustomToken
 } from 'firebase/auth';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { 
@@ -16,25 +18,29 @@ import {
   AlertCircle,
   ArrowLeft,
   UserPlus,
-  Camera
+  Camera,
+  Loader2
 } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
-const firebaseConfig = {
-  apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
-  authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
-  projectId: "fidelizacionapp-d3e8e",
-  storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
-  messagingSenderId: "86470097031",
-  appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
-};
+const firebaseConfig = typeof __firebase_config !== 'undefined' 
+  ? JSON.parse(__firebase_config) 
+  : {
+      apiKey: "AIzaSyBqCo-N8hJo61cksLdW9JgJySSfEFJke64",
+      authDomain: "fidelizacionapp-d3e8e.firebaseapp.com",
+      projectId: "fidelizacionapp-d3e8e",
+      storageBucket: "fidelizacionapp-d3e8e.firebasestorage.app",
+      messagingSenderId: "86470097031",
+      appId: "1:86470097031:web:fee57a2a8e6d471ccda022"
+    };
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Identificadores fijos para Dulce Sal
-const appIdSaaS = "dulce-sal-app"; 
+// Identificadores (Sanitizados para Firestore)
+const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
+const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
 const DULCE_SAL_ID = "dulce-sal-id"; 
 
 export default function ScanPage() {
@@ -42,82 +48,82 @@ export default function ScanPage() {
   const [loading, setLoading] = useState(true);
   const [scannedId, setScannedId] = useState('');
   const [status, setStatus] = useState({ type: '', message: '' });
-  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [qrCodeUrl, setQrCodeUrl] = useState('#');
   const scannerRef = useRef(null);
 
-  // 1. Proteger la ruta y generar URL del QR
+  // Función de navegación segura
+  const safeNavigate = (path) => {
+    if (typeof window !== 'undefined' && path) {
+      window.location.href = path;
+    }
+  };
+
+  // 1. Proteger la ruta e inicializar Auth
   useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+      } catch (err) { console.error(err); }
+    };
+    initAuth();
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) window.location.href = '/';
+      if (!currentUser && !loading) safeNavigate('/admin');
       setLoading(false);
     });
 
     if (typeof window !== 'undefined') {
       const registerUrl = `${window.location.origin}/customer`;
-      setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(registerUrl)}&margin=20`);
+      // Generamos el QR de registro con el color rosa de la marca (ec4899)
+      setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(registerUrl)}&margin=20&color=ec4899`);
     }
 
     return () => unsubscribe();
-  }, []);
+  }, [loading]);
 
-  // 2. Inicializar la Cámara (html5-qrcode dinámico)
+  // 2. Inicializar la Cámara (html5-qrcode)
   useEffect(() => {
-    if (loading) return;
+    if (loading || !user) return;
 
     let scanner = null;
-
-    // Inyectamos la librería dinámicamente para no depender de npm install
     const script = document.createElement('script');
     script.src = "https://unpkg.com/html5-qrcode";
     script.async = true;
 
     script.onload = () => {
-      // Configuramos el escáner
       scanner = new window.Html5QrcodeScanner(
         "reader",
         { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-        /* verbose= */ false
+        false
       );
-      
       scannerRef.current = scanner;
-
       scanner.render(
         (decodedText) => {
-          // Éxito al escanear: pausamos para no escanear 100 veces el mismo QR en un segundo
           if (scannerRef.current) scannerRef.current.pause(true);
-          
           processScannedId(decodedText);
-          
-          // Reanudamos la cámara después de 4 segundos
-          setTimeout(() => {
-            if (scannerRef.current) scannerRef.current.resume();
-          }, 4000);
+          setTimeout(() => { if (scannerRef.current) scannerRef.current.resume(); }, 4000);
         },
-        (errorMessage) => {
-          // Ignoramos los errores de lectura frame a frame (son normales)
-        }
+        () => {} // Ignorar errores de frame
       );
     };
 
     document.body.appendChild(script);
-
     return () => {
-      if (scannerRef.current) {
-        scannerRef.current.clear().catch(e => console.error(e));
-      }
-      if (document.body.contains(script)) {
-        document.body.removeChild(script);
-      }
+      if (scannerRef.current) scannerRef.current.clear().catch(e => console.error(e));
+      if (document.body.contains(script)) document.body.removeChild(script);
     };
-  }, [loading]);
+  }, [loading, user]);
 
-  // 3. Procesar el ID escaneado (cámara o manual)
+  // 3. Lógica de Suma de Puntos
   const processScannedId = async (uid) => {
-    if (!uid.trim()) return;
-
-    setScannedId(uid); // Lo mostramos en el input
-    setStatus({ type: 'loading', message: 'Validando identidad del cliente...' });
+    if (!uid.trim() || uid === '#') return;
+    setScannedId(uid);
+    setStatus({ type: 'loading', message: 'Validando cliente...' });
 
     try {
       const cardId = `${DULCE_SAL_ID}_${uid.trim()}`;
@@ -125,161 +131,123 @@ export default function ScanPage() {
       const cardSnap = await getDoc(cardRef);
 
       if (!cardSnap.exists()) {
-        setStatus({ 
-          type: 'error', 
-          message: 'Error: Esta tarjeta no pertenece a Dulce Sal o el cliente no está registrado.' 
-        });
+        setStatus({ type: 'error', message: 'Cliente no encontrado en Dulce Sal.' });
         return;
       }
 
       const cardData = cardSnap.data();
-      const pointsToEarn = 10; 
-
       await updateDoc(cardRef, {
         visits: (cardData.visits || 0) + 1,
-        points: (cardData.points || 0) + pointsToEarn,
+        points: (cardData.points || 0) + 10,
         lastVisit: new Date().toISOString()
       });
 
       setStatus({ 
         type: 'success', 
-        message: `¡Éxito! +${pointsToEarn} puntos sumados a ${cardData.customerName}. (Total: ${(cardData.visits || 0) + 1} visitas)` 
+        message: `+10 puntos para ${cardData.customerName}. Total: ${cardData.points + 10} pts.` 
       });
-      
-      setTimeout(() => setScannedId(''), 3000); 
+      setTimeout(() => { setStatus({ type: '', message: '' }); setScannedId(''); }, 3500);
 
     } catch (error) {
-      console.error("Error validando QR:", error);
-      setStatus({ 
-        type: 'error', 
-        message: 'Ocurrió un error. Verifica tu conexión a internet.' 
-      });
+      setStatus({ type: 'error', message: 'Error de conexión.' });
     }
   };
 
-  const handleManualSubmit = (e) => {
-    e.preventDefault();
-    processScannedId(scannedId);
-  };
-
-  if (loading) return null;
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-rosa-50">
+      <Loader2 className="text-rosa-500 animate-spin" size={40} />
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      
-      {/* Estilos para limpiar la interfaz de la librería de escaneo */}
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-rosa-100">
       <style dangerouslySetInnerHTML={{ __html: `
-        #reader { border: none !important; border-radius: 1.5rem; overflow: hidden; background: #f8fafc; }
-        #reader__dashboard_section_csr span { font-family: inherit; font-weight: bold; color: #475569; }
-        #reader__dashboard_section_csr button { background-color: #4f46e5; color: white; border: none; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; margin-top: 10px; }
-        #reader__dashboard_section_swaplink { display: none; }
-        #reader__scan_region img { object-fit: cover; border-radius: 1.5rem; }
+        #reader { border: none !important; border-radius: 2rem; overflow: hidden; background: white; }
+        #reader__dashboard_section_csr button { background-color: #ec4899; color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: 800; cursor: pointer; }
+        #reader__scan_region img { object-fit: cover; border-radius: 2rem; }
       `}} />
 
-      <header className="bg-white border-b border-slate-100 p-6 flex items-center gap-4 sticky top-0 z-10">
-        <button 
-          onClick={() => window.location.href = '/admin'}
-          className="p-2 hover:bg-slate-50 text-slate-400 hover:text-indigo-600 rounded-xl transition-colors"
-        >
+      <header className="bg-white border-b border-slate-100 p-6 flex items-center gap-4 sticky top-0 z-10 shadow-sm">
+        <button onClick={() => safeNavigate('/admin')} className="p-2 hover:bg-rosa-50 text-slate-400 hover:text-rosa-600 rounded-xl transition-all">
           <ArrowLeft size={24} />
         </button>
         <div>
-          <h1 className="text-xl font-black text-slate-800 tracking-tight">Mostrador Virtual</h1>
-          <p className="text-[10px] font-black uppercase text-slate-400 tracking-widest">Dulce Sal Loyalty</p>
+          <h1 className="text-xl font-black text-slate-900 tracking-tight">Mostrador Dulce Sal</h1>
+          <p className="text-[10px] font-black uppercase text-rosa-400 tracking-widest leading-none mt-1">Suma de Puntos</p>
         </div>
       </header>
 
       <main className="flex-1 flex items-center justify-center p-6 md:p-12">
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
           
-          {/* PANEL IZQUIERDO: CÁMARA Y ESCÁNER */}
-          <div className="bg-white p-8 md:p-10 rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 text-center animate-in zoom-in duration-500 flex flex-col">
-            
-            <div className="flex items-center justify-center gap-3 mb-6">
-              <Camera className="text-indigo-600" size={28} />
-              <h2 className="text-2xl font-black text-slate-900">Escanear Tarjeta</h2>
+          {/* LADO IZQUIERDO: CÁMARA */}
+          <div className="bg-white p-8 md:p-10 rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 text-center animate-in zoom-in duration-500">
+            <div className="flex items-center justify-center gap-3 mb-8">
+              <Camera className="text-rosa-500" size={28} />
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Escanear Cliente</h2>
             </div>
             
-            {/* CONTENEDOR DE LA CÁMARA */}
-            <div className="w-full max-w-sm mx-auto mb-6 shadow-inner rounded-3xl overflow-hidden border-4 border-slate-50">
+            <div className="w-full max-w-sm mx-auto mb-8 shadow-inner rounded-[2.5rem] overflow-hidden border-8 border-slate-50">
               <div id="reader" className="w-full"></div>
             </div>
 
-            {/* Feedback Visual */}
-            <div className="h-20 mb-6 flex items-center justify-center">
+            <div className="h-24 mb-6">
               {status.message ? (
-                <div className={`w-full p-4 rounded-2xl flex items-start gap-3 border text-left animate-in slide-in-from-bottom-2 ${
-                  status.type === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 
-                  status.type === 'error' ? 'bg-red-50 border-red-200 text-red-800' : 
-                  'bg-indigo-50 border-indigo-200 text-indigo-800'
+                <div className={`p-5 rounded-2xl flex items-start gap-4 border text-left animate-in slide-in-from-bottom-2 ${
+                  status.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 
+                  status.type === 'error' ? 'bg-red-50 border-red-100 text-red-800' : 
+                  'bg-rosa-50 border-rosa-100 text-rosa-800'
                 }`}>
-                  {status.type === 'success' ? <CheckCircle2 className="shrink-0 mt-0.5 text-emerald-500" size={20} /> : 
-                   status.type === 'error' ? <AlertCircle className="shrink-0 mt-0.5 text-red-500" size={20} /> :
-                   <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin shrink-0 mt-0.5"></div>
+                  {status.type === 'success' ? <CheckCircle2 className="shrink-0 text-emerald-500" size={22} /> : 
+                   status.type === 'error' ? <AlertCircle className="shrink-0 text-red-500" size={22} /> :
+                   <Loader2 className="animate-spin text-rosa-500" size={22} />
                   }
                   <p className="font-bold text-sm leading-tight">{status.message}</p>
                 </div>
               ) : (
-                <p className="text-slate-400 text-sm font-medium px-6">
-                  Apunta con la cámara al código QR del cliente para sumar sus puntos automáticamente.
+                <p className="text-slate-400 text-sm font-medium px-8 italic">
+                  Enfoca el código QR del cliente para procesar su visita automáticamente.
                 </p>
               )}
             </div>
 
-            {/* Fallback Manual */}
-            <div className="pt-6 border-t border-slate-100">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">¿La cámara falló? Ingreso Manual</p>
-              <form onSubmit={handleManualSubmit} className="flex gap-2">
+            <div className="pt-8 border-t border-slate-50">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-300 mb-4">Ingreso Manual</p>
+              <form onSubmit={(e) => { e.preventDefault(); processScannedId(scannedId); }} className="flex gap-3">
                 <input
-                  type="text"
-                  placeholder="Escribe el UID aquí..."
-                  className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 font-mono text-sm text-slate-700"
-                  value={scannedId}
-                  onChange={(e) => setScannedId(e.target.value)}
+                  type="text" placeholder="UID del cliente..."
+                  className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-mono text-xs"
+                  value={scannedId} onChange={(e) => setScannedId(e.target.value)}
                 />
-                <button 
-                  type="submit" 
-                  disabled={status.type === 'loading' || !scannedId.trim()}
-                  className="bg-slate-900 text-white font-bold px-6 py-3 rounded-xl hover:bg-black transition-all disabled:opacity-50"
-                >
-                  Sumar
-                </button>
+                <button type="submit" className="bg-slate-900 text-white font-black px-6 py-4 rounded-2xl hover:bg-black transition-all active:scale-95">Sumar</button>
               </form>
             </div>
           </div>
 
-          {/* PANEL DERECHO: QR DE DULCE SAL SIEMPRE VISIBLE */}
-          <div className="bg-indigo-600 p-10 rounded-[3rem] shadow-2xl shadow-indigo-200/50 text-white flex flex-col items-center justify-center text-center relative overflow-hidden animate-in zoom-in duration-500 delay-100">
-            <div className="absolute -top-20 -right-20 w-64 h-64 bg-indigo-500/50 rounded-full blur-[80px]"></div>
-            
-            <div className="relative z-10 w-full flex flex-col items-center">
-              <div className="bg-white/10 w-20 h-20 rounded-[2rem] flex items-center justify-center mb-6 border border-white/20">
-                <UserPlus size={32} className="text-white" />
+          {/* LADO DERECHO: QR DE REGISTRO */}
+          <div className="bg-rosa-500 p-10 rounded-[3rem] shadow-2xl shadow-rosa-200/50 text-white flex flex-col items-center justify-center text-center relative overflow-hidden animate-in zoom-in duration-500 delay-150">
+            <div className="absolute -top-20 -right-20 w-80 h-80 bg-rosa-400 rounded-full blur-[100px] opacity-50"></div>
+            <div className="relative z-10 flex flex-col items-center">
+              <div className="bg-white/20 w-20 h-20 rounded-[2rem] flex items-center justify-center mb-6 backdrop-blur-md border border-white/30 shadow-xl">
+                <UserPlus size={36} className="text-white" />
               </div>
-              
-              <h2 className="text-3xl font-black mb-3 tracking-tight">Invitar Cliente Nuevo</h2>
-              <p className="text-indigo-100 text-sm font-medium leading-relaxed max-w-xs mb-10">
-                Pide a tu cliente que escanee este código para crear su tarjeta de Dulce Sal al instante.
+              <h2 className="text-3xl font-black mb-4 tracking-tighter italic">¿Cliente Nuevo?</h2>
+              <p className="text-rosa-50 text-sm font-medium leading-relaxed max-w-xs mb-10 opacity-90">
+                Pide que escaneen este código para unirse al programa VIP de Dulce Sal ahora mismo.
               </p>
-
-              {/* Contenedor del QR */}
-              <div className="bg-white p-6 rounded-[2.5rem] shadow-2xl transition-transform hover:scale-105">
-                {qrCodeUrl ? (
-                  <img src={qrCodeUrl} alt="QR Registro Dulce Sal" className="w-48 h-48 md:w-56 md:h-56 rounded-2xl" />
+              <div className="bg-white p-6 rounded-[3rem] shadow-2xl transform hover:rotate-2 transition-transform duration-500 cursor-pointer">
+                {qrCodeUrl !== '#' ? (
+                  <img src={qrCodeUrl} alt="QR Registro" className="w-52 h-52 rounded-2xl" />
                 ) : (
-                  <div className="w-48 h-48 bg-slate-100 rounded-2xl animate-pulse"></div>
+                  <div className="w-52 h-52 bg-slate-50 animate-pulse rounded-2xl"></div>
                 )}
               </div>
-              
-              <p className="mt-8 text-[10px] font-black uppercase tracking-[0.3em] text-indigo-200/50">
-                Dulce Sal Loyalty
-              </p>
+              <p className="mt-10 text-[10px] font-black uppercase tracking-[0.4em] text-rosa-200/60">Dulce Sal Loyalty</p>
             </div>
           </div>
 
         </div>
       </main>
-      
     </div>
   );
 }
