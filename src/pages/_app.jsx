@@ -1,45 +1,71 @@
 import React from 'react';
 
-// ============================================================================
-// NOTA PARA TU PROYECTO LOCAL (VS CODE):
-// Por favor, descomenta las siguientes dos líneas en tu entorno local
-// y elimina la constante "Head" simulada de abajo.
-// ============================================================================
-// import '../styles/globals.css';
-// import Head from 'next/head';
-
-// --- Componente simulado para evitar problemas en esta vista previa ---
-const Head = ({ children }) => <>{children}</>;
-// ----------------------------------------------------------------------
-
 /**
- * Componente Raíz de la Aplicación (_app.jsx)
- * Este archivo es fundamental en Next.js para inicializar todas las páginas.
+ * Componente Principal de Next.js (_app.jsx)
+ * ----------------------------------------------------------------------------
+ * Se han eliminado las importaciones de archivos CSS externos para evitar
+ * errores de resolución y se han integrado los estilos base directamente.
  */
-export default function MyApp({ Component, pageProps }) {
-  // Componente de respaldo en caso de renderizarse sin Component
-  const ActiveComponent = Component || function PreviewFallback() {
-    return (
-      <div className="flex min-h-screen items-center justify-center p-10 text-center text-slate-500 font-bold">
-        La estructura base _app.jsx está lista para tu proyecto.
-      </div>
-    );
-  };
+function App({ Component, pageProps }) {
+  // Aseguramos que el componente sea válido
+  const ActiveComponent = Component || (() => null);
 
   return (
     <>
-      <Head>
-        {/* Asegura que la app se vea como una aplicación nativa en móviles y evita el zoom al tocar inputs */}
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
-        <title>Dulce Sal Loyalty</title>
-      </Head>
+      {/* Configuración de Viewport para asegurar que la App se vea bien en móviles */}
+      <meta 
+        name="viewport" 
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" 
+      />
       
-      <div className="min-h-screen bg-slate-50 selection:bg-indigo-100 selection:text-indigo-900 font-sans">
-        {/* Se envuelve la aplicación en un contenedor base para asegurar 
-            que el fondo y el comportamiento de selección de texto sean consistentes.
-        */}
+      {/* Estilos Globales Integrados para garantizar el formato Rosa Dulce Sal */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        /* Definición manual de la paleta rosa para mayor seguridad */
+        :root {
+          --rosa-50: #fdf2f8;
+          --rosa-100: #fce7f3;
+          --rosa-200: #fbcfe8;
+          --rosa-500: #ec4899;
+          --rosa-600: #db2777;
+        }
+
+        html, body {
+          padding: 0;
+          margin: 0;
+          font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          background-color: #f8fafc; /* slate-50 */
+          color: #0f172a; /* slate-900 */
+          -webkit-tap-highlight-color: transparent;
+          -webkit-font-smoothing: antialiased;
+          -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Utilidad para la selección de texto con colores de la marca */
+        ::selection {
+          background-color: var(--rosa-100);
+          color: #831843; /* rosa-900 */
+        }
+
+        /* Clases de utilidad personalizadas para asegurar el diseño */
+        .bg-rosa-50 { background-color: var(--rosa-50); }
+        .bg-rosa-100 { background-color: var(--rosa-100); }
+        .bg-rosa-200 { background-color: var(--rosa-200); }
+        .bg-rosa-500 { background-color: var(--rosa-500); }
+        .bg-rosa-600 { background-color: var(--rosa-600); }
+        .text-rosa-500 { color: var(--rosa-500); }
+        .text-rosa-600 { color: var(--rosa-600); }
+        
+        .shadow-rosa { 
+          box-shadow: 0 20px 25px -5px rgba(236, 72, 153, 0.1), 0 10px 10px -5px rgba(236, 72, 153, 0.04); 
+        }
+      `}} />
+
+      {/* Contenedor principal con clases de Tailwind aplicadas */}
+      <div className="min-h-screen bg-slate-50 selection:bg-rosa-100 selection:text-rosa-900">
         <ActiveComponent {...pageProps} />
       </div>
     </>
   );
 }
+
+export default App;
