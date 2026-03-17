@@ -2,17 +2,49 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Estilos base opcionales para mejorar la apariencia en móviles */
-body {
-  @apply antialiased text-slate-900 bg-slate-50;
+/**
+ * ESTILOS GLOBALES - DULCE SAL LOYALTY
+ * ----------------------------------------------------------------------------
+ * Este archivo activa las directivas de Tailwind y establece la base visual
+ * para que la aplicación se sienta como una herramienta nativa y fluida.
+ */
+
+@layer base {
+  body {
+    /* antialiased mejora la legibilidad de las fuentes en pantallas modernas */
+    @apply antialiased text-slate-900 bg-slate-50 font-sans;
+    -webkit-tap-highlight-color: transparent;
+  }
 }
 
-/* Utilidad para ocultar la barra de scroll en el selector de tarjetas del cliente */
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
+@layer components {
+  /* Utilidad para ocultar barras de desplazamiento y mejorar el look PWA */
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hide-scrollbar {
+    -ms-overflow-style: none; /* Internet Explorer 10+ */
+    scrollbar-width: none;    /* Firefox */
+  }
+
+  /* Animación personalizada para alertas de error */
+  .animate-shake {
+    animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+  }
+
+  @keyframes shake {
+    10%, 90% { transform: translate3d(-1px, 0, 0); }
+    20%, 80% { transform: translate3d(2px, 0, 0); }
+    30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+    40%, 60% { transform: translate3d(4px, 0, 0); }
+  }
 }
 
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/**
+ * Optimizaciones de selección de texto para la marca rosa
+ */
+::selection {
+  background-color: #fce7f3; /* rosa-100 */
+  color: #831843;            /* rosa-900 */
 }
