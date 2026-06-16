@@ -51,6 +51,35 @@ const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
 const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
 const DULCE_SAL_ID = "dulce-sal-id"; 
 
+// --- INYECTOR DE ESTILOS TAILWIND (Garantiza que el diseño no se rompa) ---
+const TailwindStyleInjector = () => {
+  useEffect(() => {
+    if (!document.getElementById('tailwind-cdn')) {
+      const script = document.createElement('script');
+      script.id = 'tailwind-cdn';
+      script.src = "https://cdn.tailwindcss.com";
+      document.head.appendChild(script);
+      script.onload = () => {
+        window.tailwind.config = {
+          theme: {
+            extend: {
+              colors: {
+                rosa: {
+                  50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8',
+                  300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899',
+                  600: '#db2777', 700: '#be185d', 800: '#9d174d',
+                  900: '#831843'
+                }
+              }
+            }
+          }
+        };
+      };
+    }
+  }, []);
+  return null;
+};
+
 // Componente de Tarjeta de Estadísticas refactorizado
 const StatCard = ({ title, value, icon: Icon, subtitle }) => (
   <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-xl hover:shadow-rosa-100/50 transition-all duration-300 group">
@@ -119,7 +148,7 @@ export default function AdminDashboard() {
   useEffect(() => {
     if (!user) return;
 
-    // Referencia al documento del negocio (6 segmentos: artifacts/appId/public/data/businesses/docId)
+    // Referencia al documento del negocio
     const businessRef = doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'businesses', DULCE_SAL_ID);
     const unsubBusiness = onSnapshot(businessRef, (snap) => {
       if (snap.exists()) {
@@ -127,7 +156,7 @@ export default function AdminDashboard() {
       }
     }, (err) => console.error("Error loading business:", err));
 
-    // Referencia a la colección de tarjetas (6 segmentos para el path base: artifacts/appId/public/data/loyalty_cards)
+    // Referencia a la colección de tarjetas
     const customersRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards');
 
     const unsubCustomers = onSnapshot(customersRef, (snap) => {
@@ -164,6 +193,7 @@ export default function AdminDashboard() {
 
   if (loading && !user) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+      <TailwindStyleInjector />
       <div className="w-12 h-12 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin mb-4"></div>
       <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando Dulce Sal</p>
     </div>
@@ -171,6 +201,7 @@ export default function AdminDashboard() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-rosa-100">
+      <TailwindStyleInjector />
       
       {/* SIDEBAR LATERAL */}
       <aside className="w-72 bg-white border-r border-slate-100 hidden lg:flex flex-col p-8 sticky top-0 h-screen">
@@ -285,7 +316,7 @@ export default function AdminDashboard() {
           </div>
 
           <section className="bg-white rounded-[3rem] border border-slate-100 shadow-2xl shadow-slate-200/40 overflow-hidden mb-12">
-            <div className="p-10 border-b border-slate-50 flex flex-col md:flex-row justify-between items-md-center gap-6">
+            <div className="p-10 border-b border-slate-50 flex flex-col md:flex-row justify-between md:items-center gap-6">
               <div>
                 <h3 className="font-black text-slate-900 text-2xl tracking-tight">Base de Clientes</h3>
                 <p className="text-slate-400 text-xs font-medium mt-1">Actualizado en tiempo real</p>
