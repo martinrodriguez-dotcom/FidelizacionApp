@@ -26,7 +26,7 @@ const DULCE_SAL_ID = "dulce-sal-id";
 // --- TU LLAVE DE SEGURIDAD PUSH ---
 const VAPID_KEY = "BP0oUuWAELndsKXM8iG5j6NskfYtRC4brM81Kd-yXs33Oh6KQ0RO_1z5GPXYxk-a0ezpjXKSAGUQRqvFtERxcaA";
 
-// --- INYECTOR DE ESTILOS TAILWIND ---
+// --- INYECTOR DE ESTILOS TAILWIND CORREGIDO ---
 const TailwindStyleInjector = () => {
   useEffect(() => {
     if (!document.getElementById('tailwind-cdn')) {
@@ -36,9 +36,18 @@ const TailwindStyleInjector = () => {
       document.head.appendChild(script);
       script.onload = () => {
         window.tailwind.config = {
-          theme: { extend: { colors: {
-            rosa: { 50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8', 300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899', 600: '#db2777', 700: '#be185d', 800: '#9d174d', 900: '#831843' }
-          }}}}
+          theme: {
+            extend: {
+              colors: {
+                rosa: {
+                  50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8',
+                  300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899',
+                  600: '#db2777', 700: '#be185d', 800: '#9d174d',
+                  900: '#831843'
+                }
+              }
+            }
+          }
         };
       };
     }
@@ -108,11 +117,9 @@ export default function CustomerView() {
       
       if (permission === "granted") {
         const messaging = getMessaging(app);
-        // Obtenemos el token usando tu VAPID Key
         const currentToken = await getToken(messaging, { vapidKey: VAPID_KEY });
         
         if (currentToken) {
-          // Si el cliente ya está registrado, guardamos su token en Firestore
           if (card && user) {
             const cardId = `${DULCE_SAL_ID}_${user.uid}`;
             await updateDoc(doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId), {
