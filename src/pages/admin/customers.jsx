@@ -11,7 +11,12 @@ import {
   ArrowLeft,
   User 
 } from 'lucide-react';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { 
+  getAuth, 
+  onAuthStateChanged,
+  signInAnonymously,
+  signInWithCustomToken
+} from 'firebase/auth';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 
@@ -36,6 +41,35 @@ const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
 const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
 const DULCE_SAL_ID = "dulce-sal-id";
 
+// --- INYECTOR DE ESTILOS TAILWIND (Garantiza el diseño rosa) ---
+const TailwindStyleInjector = () => {
+  useEffect(() => {
+    if (!document.getElementById('tailwind-cdn')) {
+      const script = document.createElement('script');
+      script.id = 'tailwind-cdn';
+      script.src = "https://cdn.tailwindcss.com";
+      document.head.appendChild(script);
+      script.onload = () => {
+        window.tailwind.config = {
+          theme: {
+            extend: {
+              colors: {
+                rosa: {
+                  50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8',
+                  300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899',
+                  600: '#db2777', 700: '#be185d', 800: '#9d174d',
+                  900: '#831843'
+                }
+              }
+            }
+          }
+        };
+      };
+    }
+  }, []);
+  return null;
+};
+
 export default function CustomersPage() {
   const [user, setUser] = useState(null);
   const [business, setBusiness] = useState(null);
@@ -43,14 +77,32 @@ export default function CustomersPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
 
-  // 1. Proteger ruta
+  // Función de navegación segura
+  const safeNavigate = (path) => {
+    if (typeof window !== 'undefined' && path) {
+      window.location.href = path;
+    }
+  };
+
+  // 1. Proteger ruta y Auth
   useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else if (!auth.currentUser) {
+          await signInAnonymously(auth);
+        }
+      } catch (err) { console.error(err); }
+    };
+    initAuth();
+
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser) window.location.href = '/';
+      if (!currentUser && !loading) safeNavigate('/');
     });
     return () => unsubscribe();
-  }, []);
+  }, [loading]);
 
   // 2. Cargar datos
   useEffect(() => {
@@ -100,6 +152,7 @@ export default function CustomersPage() {
 
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 font-sans">
+      <TailwindStyleInjector />
       <div className="w-12 h-12 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin mb-4"></div>
       <p className="text-rosa-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando Base de Clientes</p>
     </div>
@@ -107,12 +160,13 @@ export default function CustomersPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-6 md:p-12 selection:bg-rosa-100 selection:text-rosa-900">
+      <TailwindStyleInjector />
       <div className="max-w-6xl mx-auto">
         
         <header className="flex flex-col md:flex-row justify-between md:items-center gap-6 mb-12 animate-in fade-in slide-in-from-top-4 duration-500">
           <div className="flex items-center gap-5">
             <button 
-              onClick={() => window.location.href = '/admin'} 
+              onClick={() => safeNavigate('/admin')} 
               className="p-4 bg-white rounded-2xl shadow-sm text-slate-400 hover:text-rosa-500 hover:bg-rosa-50 transition-all active:scale-95"
             >
               <ArrowLeft size={24} />
