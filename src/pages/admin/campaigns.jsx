@@ -1,20 +1,31 @@
-import React, { useState, useEffect } from 'react';
-import { collection, onSnapshot, addDoc } from 'firebase/firestore';
+import React, { useEffect, useState } from 'react';
 import { 
-  Bell, 
-  Send, 
-  ArrowLeft, 
-  Smartphone, 
-  Users, 
-  CheckCircle2, 
-  Loader2,
-  History
-} from 'lucide-react';
-import { getAuth, onAuthStateChanged, signInAnonymously, signInWithCustomToken } from 'firebase/auth';
+  getFirestore, 
+  collection, 
+  onSnapshot, 
+  addDoc 
+} from 'firebase/firestore';
+import { 
+  getAuth, 
+  onAuthStateChanged,
+  signOut,
+  signInAnonymously,
+  signInWithCustomToken
+} from 'firebase/auth';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { 
+  LayoutDashboard, 
+  Users, 
+  Award, 
+  Bell, 
+  LogOut,
+  Store,
+  ArrowLeft,
+  Send,
+  MessageSquare
+} from 'lucide-react';
 
-// --- CONFIGURACIÓN FIREBASE ---
+// --- CONFIGURACIÓN DE FIREBASE ---
 const firebaseConfig = typeof __firebase_config !== 'undefined' 
   ? JSON.parse(__firebase_config) 
   : {
@@ -32,19 +43,46 @@ const db = getFirestore(app);
 
 const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
 const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
-const DULCE_SAL_ID = "dulce-sal-id";
+const DULCE_SAL_ID = "dulce-sal-id"; 
 
-export default function CampaignsPage() {
+// --- INYECTOR DE ESTILOS TAILWIND ---
+const TailwindStyleInjector = () => {
+  useEffect(() => {
+    if (!document.getElementById('tailwind-cdn')) {
+      const script = document.createElement('script');
+      script.id = 'tailwind-cdn';
+      script.src = "https://cdn.tailwindcss.com";
+      document.head.appendChild(script);
+      script.onload = () => {
+        window.tailwind.config = {
+          theme: {
+            extend: {
+              colors: {
+                rosa: {
+                  50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8',
+                  300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899',
+                  600: '#db2777', 700: '#be185d', 800: '#9d174d',
+                  900: '#831843'
+                }
+              }
+            }
+          }
+        };
+      };
+    }
+  }, []);
+  return null;
+};
+
+export default function AdminCampaigns() {
   const [user, setUser] = useState(null);
-  const [customerCount, setCustomerCount] = useState(0);
-  const [pushCount, setPushCount] = useState(0);
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [isSending, setIsSending] = useState(false);
   
-  const [formData, setFormData] = useState({ title: '', body: '' });
+  // Estado del formulario
+  const [formTitle, setFormTitle] = useState('');
+  const [formBody, setFormBody] = useState('');
 
-  // Función de navegación segura
   const safeNavigate = (path) => {
     if (typeof window !== 'undefined' && path) {
       window.location.href = path;
@@ -61,217 +99,185 @@ export default function CampaignsPage() {
         }
       } catch (err) { console.error(err); }
     };
+
     initAuth();
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (!currentUser && !loading) safeNavigate('/admin');
+      if (!currentUser && !loading) safeNavigate('/');
     });
+
     return () => unsubscribe();
   }, [loading]);
 
   useEffect(() => {
     if (!user) return;
-
-    // 1. Contar Clientes Reales y Suscritos
-    const cardsRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards');
-    const unsubCards = onSnapshot(cardsRef, (snap) => {
-      const list = snap.docs.map(d => d.data()).filter(c => c.businessId === DULCE_SAL_ID);
-      setCustomerCount(list.length);
-      setPushCount(list.filter(c => c.pushEnabled === true).length);
-    });
-
-    // 2. Historial de Campañas
-    const campRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'campaigns');
-    const unsubCamp = onSnapshot(campRef, (snap) => {
+    
+    const campaignsRef = collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'campaigns');
+    const unsub = onSnapshot(campaignsRef, (snap) => {
       const list = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
+        .map(doc => ({ id: doc.id, ...doc.data() }))
         .filter(c => c.businessId === DULCE_SAL_ID);
-      setCampaigns(list.sort((a,b) => new Date(b.sentAt) - new Date(a.sentAt)));
-      setLoading(false);
-    }, (err) => {
-      console.error(err);
+        
+      setCampaigns(list.sort((a, b) => new Date(b.sentAt) - new Date(a.sentAt)));
       setLoading(false);
     });
 
-    return () => { unsubCards(); unsubCamp(); };
+    return () => unsub();
   }, [user]);
 
-  const handleSendPush = async (e) => {
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      safeNavigate('/');
+    } catch (err) { console.error(err); }
+  };
+
+  const handleSendCampaign = async (e) => {
     e.preventDefault();
-    if (!formData.title.trim() || !formData.body.trim()) return;
-    setIsSending(true);
+    if (!formTitle.trim() || !formBody.trim()) return;
 
     try {
       await addDoc(collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'campaigns'), {
         businessId: DULCE_SAL_ID,
-        title: formData.title,
-        body: formData.body,
-        sentAt: new Date().toISOString(),
-        reach: pushCount
+        title: formTitle,
+        body: formBody,
+        sentAt: new Date().toISOString()
       });
-
-      setFormData({ title: '', body: '' });
-      // Mensaje de éxito visual (sustituyendo alert por estado si fuera necesario, aquí mantenemos simple)
-      alert(`¡Campaña enviada a ${pushCount} dispositivos!`);
-    } catch (error) {
-      console.error(error);
-      alert("Error al enviar campaña.");
-    } finally {
-      setIsSending(false);
+      setFormTitle('');
+      setFormBody('');
+      alert("Notificación guardada en el historial de envíos.");
+    } catch (err) {
+      console.error("Error al enviar campaña:", err);
     }
   };
 
-  if (loading) return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <Loader2 className="text-rosa-500 animate-spin" size={40} />
+  if (loading && !user) return (
+    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50">
+      <TailwindStyleInjector />
+      <div className="w-12 h-12 border-4 border-rosa-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+      <p className="text-slate-400 font-black uppercase tracking-[0.3em] text-[10px]">Cargando...</p>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans p-6 md:p-12 selection:bg-rosa-100 selection:text-rosa-900">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-10">
-        
-        <div className="lg:col-span-2 flex items-center gap-5 mb-4 animate-in fade-in slide-in-from-top-4 duration-500">
-          <button 
-            onClick={() => safeNavigate('/admin')} 
-            className="p-4 bg-white rounded-2xl shadow-sm text-slate-400 hover:text-rosa-600 hover:bg-rosa-50 transition-all active:scale-95"
-          >
-            <ArrowLeft size={24} />
-          </button>
+    <div className="min-h-screen bg-slate-50 flex font-sans selection:bg-rosa-100">
+      <TailwindStyleInjector />
+      
+      {/* SIDEBAR */}
+      <aside className="w-72 bg-white border-r border-slate-100 hidden lg:flex flex-col p-8 sticky top-0 h-screen">
+        <div className="mb-12 flex items-center gap-4 cursor-pointer" onClick={() => safeNavigate('/admin')}>
+          <div className="bg-rosa-500 p-3 rounded-2xl text-white shadow-lg shadow-rosa-100">
+            <Store size={24} />
+          </div>
           <div>
-            <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Campañas Push</h1>
-            <p className="text-slate-500 font-medium italic mt-1">Conecta con los clientes de Dulce Sal en tiempo real</p>
+            <h2 className="font-black text-slate-900 tracking-tighter text-2xl italic">Dulce Sal</h2>
+            <p className="text-[9px] font-black uppercase tracking-widest text-rosa-400">Admin Console</p>
           </div>
         </div>
+        
+        <nav className="space-y-3 flex-1">
+          <button onClick={() => safeNavigate('/admin')} className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group">
+            <LayoutDashboard size={18} className="group-hover:text-rosa-500" /> Dashboard
+          </button>
+          <button onClick={() => safeNavigate('/admin/customers')} className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group">
+            <Users size={18} className="group-hover:text-rosa-500" /> Clientes
+          </button>
+          <button onClick={() => safeNavigate('/admin/rewards')} className="w-full flex items-center gap-3 px-6 py-4 rounded-[1.5rem] text-slate-400 hover:bg-rosa-50 hover:text-rosa-600 font-bold text-sm transition-all group">
+            <Award size={18} className="group-hover:text-rosa-500" /> Configurar Premios
+          </button>
+          <button className="w-full flex items-center justify-between px-6 py-4 rounded-[1.5rem] bg-rosa-500 text-white font-bold text-sm shadow-xl shadow-rosa-100 transition-all">
+            <div className="flex items-center gap-3"><Bell size={18} /> Campañas Push</div>
+          </button>
+        </nav>
 
-        {/* Creador de Campañas */}
-        <div className="bg-white p-8 md:p-10 rounded-[3.5rem] shadow-2xl shadow-slate-200/50 border border-slate-100 animate-in fade-in slide-in-from-left-4 duration-700">
-          <div className="flex items-center gap-5 mb-10">
-            <div className="bg-rosa-50 w-20 h-20 rounded-[1.75rem] flex items-center justify-center rotate-3 shadow-inner">
-              <Bell className="text-rosa-500" size={36} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-black text-slate-800 tracking-tight">Nuevo Mensaje</h2>
-              <div className="flex items-center gap-2 mt-1">
-                <Smartphone size={14} className="text-rosa-400" />
-                <p className="text-xs font-bold text-slate-400 tracking-tight">
-                  Llegará a <span className="text-rosa-600">{pushCount}</span> de {customerCount} clientes.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <form onSubmit={handleSendPush} className="space-y-6">
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Título de la Notificación</label>
-              <input 
-                type="text" 
-                placeholder="Ej: ¡Hoy 2x1 en postres!" 
-                maxLength="50" 
-                className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-bold transition-all" 
-                value={formData.title} 
-                onChange={e => setFormData({...formData, title: e.target.value})} 
-                required 
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-black uppercase text-slate-400 ml-1 tracking-widest">Cuerpo del Mensaje</label>
-              <textarea 
-                placeholder="Ej: Ven este fin de semana y duplica tus puntos en consumos mayores a $500." 
-                rows="4" 
-                maxLength="150" 
-                className="w-full p-5 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-medium resize-none transition-all" 
-                value={formData.body} 
-                onChange={e => setFormData({...formData, body: e.target.value})} 
-                required 
-              />
-              <p className="text-right text-[10px] text-slate-300 font-black tracking-widest uppercase mt-1">
-                {formData.body.length}/150 caracteres
-              </p>
-            </div>
-            
-            <button 
-              type="submit" 
-              disabled={isSending || pushCount === 0} 
-              className="w-full bg-rosa-500 text-white font-black py-5 rounded-2xl shadow-xl shadow-rosa-100 hover:bg-rosa-600 flex items-center justify-center gap-3 disabled:opacity-50 transition-all active:scale-95"
-            >
-              {isSending ? <Loader2 className="animate-spin" size={20} /> : <><Send size={20} /> Enviar Notificación</>}
-            </button>
-            
-            {pushCount === 0 && (
-              <div className="bg-amber-50 border border-amber-100 p-4 rounded-2xl mt-4">
-                <p className="text-center text-[10px] text-amber-600 font-black uppercase tracking-widest">
-                  No hay dispositivos habilitados para recibir mensajes.
-                </p>
-              </div>
-            )}
-          </form>
+        <div className="pt-8 border-t border-slate-50">
+          <button onClick={handleLogout} className="w-full flex items-center gap-3 px-6 py-4 text-red-400 font-bold text-sm hover:bg-red-50 rounded-[1.5rem] transition-all">
+            <LogOut size={18} /> Cerrar Sesión
+          </button>
         </div>
+      </aside>
 
-        {/* Vista Previa y Registro */}
-        <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-700">
+      {/* MAIN CONTENT */}
+      <main className="flex-1 p-6 lg:p-12 overflow-y-auto">
+        <div className="max-w-6xl mx-auto">
           
-          <div className="bg-slate-200/40 p-10 rounded-[3.5rem] border border-slate-200 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-rosa-500/5 rounded-full -mr-10 -mt-10 blur-2xl"></div>
-            <h3 className="text-[10px] font-black uppercase text-slate-400 mb-8 tracking-[0.3em] text-center">Vista Previa Real-Time</h3>
-            
-            {/* Mockup de Notificación iOS/Android */}
-            <div className="bg-white p-5 rounded-3xl shadow-xl max-w-sm mx-auto flex items-start gap-4 border border-slate-100 animate-in zoom-in duration-300">
-              <div className="bg-rosa-500 w-12 h-12 rounded-[1.25rem] shrink-0 flex items-center justify-center shadow-lg shadow-rosa-100">
-                <Store className="text-white" size={24} />
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-center mb-1">
-                  <p className="font-black text-slate-900 text-[13px] tracking-tight uppercase">Dulce Sal</p>
-                  <span className="text-[9px] text-slate-300 font-bold uppercase">Ahora</span>
-                </div>
-                <p className="font-bold text-slate-800 text-sm truncate">{formData.title || 'Título del Mensaje'}</p>
-                <p className="text-slate-500 text-xs mt-1 leading-relaxed line-clamp-2">
-                  {formData.body || 'Escribe un mensaje atractivo para que tus clientes vuelvan al local.'}
-                </p>
-              </div>
+          <header className="flex flex-col md:flex-row justify-between md:items-center gap-6 mb-12">
+            <div>
+              <button onClick={() => safeNavigate('/admin')} className="flex items-center gap-2 text-slate-400 hover:text-rosa-500 font-bold text-xs uppercase tracking-widest mb-4 transition-colors">
+                <ArrowLeft size={16} /> Volver
+              </button>
+              <h1 className="text-4xl font-black text-slate-900 tracking-tighter">Mensajes y Notificaciones</h1>
+              <p className="text-slate-400 font-medium italic text-sm mt-1">Comunícate con tu base de clientes.</p>
             </div>
-          </div>
+          </header>
 
-          <div className="bg-white p-8 md:p-10 rounded-[3.5rem] shadow-sm border border-slate-100">
-            <div className="flex items-center gap-3 mb-8">
-              <History className="text-rosa-500" size={20} />
-              <h3 className="text-lg font-black text-slate-800 tracking-tight">Envíos Recientes</h3>
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             
-            <div className="space-y-4 max-h-[320px] overflow-y-auto pr-2 hide-scrollbar">
-              {campaigns.length === 0 ? (
-                <div className="py-12 text-center">
-                  <Bell className="mx-auto text-slate-100 mb-3" size={40} />
-                  <p className="text-slate-400 text-xs font-bold italic">Aún no has enviado campañas.</p>
-                </div>
-              ) : campaigns.map(camp => (
-                <div key={camp.id} className="p-5 bg-slate-50 rounded-2xl border border-slate-100 hover:border-rosa-100 transition-colors">
-                  <p className="font-black text-slate-800 text-sm tracking-tight mb-1">{camp.title}</p>
-                  <p className="text-slate-500 text-[11px] leading-tight mb-3 line-clamp-1 italic">{camp.body}</p>
-                  <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-400">
-                    <div className="flex items-center gap-1.5">
-                      <CheckCircle2 size={12} className="text-emerald-500" />
-                      <span>{new Date(camp.sentAt).toLocaleDateString()}</span>
-                    </div>
-                    <span className="bg-white px-3 py-1 rounded-full border border-slate-100 text-rosa-500">
-                      Alcance: {camp.reach}
-                    </span>
+            {/* REDACTAR MENSAJE */}
+            <div>
+              <form onSubmit={handleSendCampaign} className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-xl shadow-slate-200/40 sticky top-8">
+                <div className="flex items-center gap-4 mb-8">
+                  <div className="w-14 h-14 bg-rosa-50 text-rosa-500 rounded-2xl flex items-center justify-center">
+                    <MessageSquare size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tight leading-none">Redactar</h3>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 mt-1">Nuevo Mensaje</p>
                   </div>
                 </div>
-              ))}
+                
+                <div className="space-y-6">
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 block mb-2 ml-1">Título de la Notificación</label>
+                    <input 
+                      type="text" required placeholder="Ej: ¡Llegaron nuevas promos!"
+                      className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-bold text-slate-700 transition-all"
+                      value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 block mb-2 ml-1">Contenido del mensaje</label>
+                    <textarea 
+                      required rows="4" placeholder="Escribe tu mensaje aquí..."
+                      className="w-full px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-medium text-slate-700 transition-all resize-none"
+                      value={formBody} onChange={(e) => setFormBody(e.target.value)}
+                    ></textarea>
+                  </div>
+                </div>
+                
+                <button type="submit" className="w-full mt-8 bg-slate-900 text-white font-black px-6 py-4 rounded-2xl hover:bg-black transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-widest shadow-xl active:scale-95">
+                  <Send size={18} /> Enviar a Todos
+                </button>
+              </form>
             </div>
+
+            {/* HISTORIAL DE ENVÍOS */}
+            <div className="space-y-4">
+              <h4 className="font-black text-slate-400 text-[10px] uppercase tracking-[0.2em] px-4 mb-6">Historial de Envíos</h4>
+              
+              {campaigns.length === 0 ? (
+                <div className="bg-white rounded-[3rem] p-16 text-center border border-slate-100 shadow-sm">
+                  <Bell size={48} className="mx-auto text-slate-200 mb-4" />
+                  <p className="text-slate-400 font-bold text-sm italic">No has enviado ninguna campaña aún.</p>
+                </div>
+              ) : (
+                campaigns.map((c) => (
+                  <div key={c.id} className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:shadow-rosa-100/50 transition-all group">
+                    <h5 className="font-black text-lg text-slate-900 mb-2 tracking-tight">{c.title}</h5>
+                    <p className="text-sm text-slate-500 leading-relaxed mb-4">{c.body}</p>
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.1em] text-rosa-400 bg-rosa-50 inline-flex px-3 py-1.5 rounded-xl">
+                      <Send size={12} />
+                      {new Date(c.sentAt).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' })}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
           </div>
-
         </div>
-
-      </div>
-      
-      <style dangerouslySetInnerHTML={{ __html: `
-        .hide-scrollbar::-webkit-scrollbar { display: none; }
-        .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-      ` }} />
+      </main>
     </div>
   );
 }
