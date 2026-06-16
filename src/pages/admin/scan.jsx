@@ -38,10 +38,39 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// Identificadores (Sanitizados para Firestore)
+// Identificadores
 const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
 const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
 const DULCE_SAL_ID = "dulce-sal-id"; 
+
+// --- INYECTOR DE ESTILOS TAILWIND (Garantiza el diseño rosa) ---
+const TailwindStyleInjector = () => {
+  useEffect(() => {
+    if (!document.getElementById('tailwind-cdn')) {
+      const script = document.createElement('script');
+      script.id = 'tailwind-cdn';
+      script.src = "https://cdn.tailwindcss.com";
+      document.head.appendChild(script);
+      script.onload = () => {
+        window.tailwind.config = {
+          theme: {
+            extend: {
+              colors: {
+                rosa: {
+                  50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8',
+                  300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899',
+                  600: '#db2777', 700: '#be185d', 800: '#9d174d',
+                  900: '#831843'
+                }
+              }
+            }
+          }
+        };
+      };
+    }
+  }, []);
+  return null;
+};
 
 export default function ScanPage() {
   const [user, setUser] = useState(null);
@@ -79,7 +108,6 @@ export default function ScanPage() {
 
     if (typeof window !== 'undefined') {
       const registerUrl = `${window.location.origin}/customer`;
-      // Generamos el QR de registro con el color rosa de la marca (ec4899)
       setQrCodeUrl(`https://api.qrserver.com/v1/create-qr-code/?size=500x500&data=${encodeURIComponent(registerUrl)}&margin=20&color=ec4899`);
     }
 
@@ -119,7 +147,7 @@ export default function ScanPage() {
     };
   }, [loading, user]);
 
-  // 3. Lógica de Suma de Puntos
+  // 3. Lógica de Suma de Puntos y Visitas
   const processScannedId = async (uid) => {
     if (!uid.trim() || uid === '#') return;
     setScannedId(uid);
@@ -144,36 +172,41 @@ export default function ScanPage() {
 
       setStatus({ 
         type: 'success', 
-        message: `+10 puntos para ${cardData.customerName}. Total: ${cardData.points + 10} pts.` 
+        message: `¡Éxito! +10 puntos y 1 visita para ${cardData.customerName}.` 
       });
       setTimeout(() => { setStatus({ type: '', message: '' }); setScannedId(''); }, 3500);
 
     } catch (error) {
-      setStatus({ type: 'error', message: 'Error de conexión.' });
+      setStatus({ type: 'error', message: 'Error de conexión con la base de datos.' });
     }
   };
 
   if (loading) return (
     <div className="min-h-screen flex items-center justify-center bg-rosa-50">
+      <TailwindStyleInjector />
       <Loader2 className="text-rosa-500 animate-spin" size={40} />
     </div>
   );
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans selection:bg-rosa-100">
+      <TailwindStyleInjector />
+      
+      {/* Estilos específicos para forzar la estética del recuadro de la cámara */}
       <style dangerouslySetInnerHTML={{ __html: `
-        #reader { border: none !important; border-radius: 2rem; overflow: hidden; background: white; }
-        #reader__dashboard_section_csr button { background-color: #ec4899; color: white; border: none; padding: 10px 20px; border-radius: 12px; font-weight: 800; cursor: pointer; }
+        #reader { border: none !important; border-radius: 2.5rem; overflow: hidden; background: white; box-shadow: inset 0 2px 4px 0 rgba(0, 0, 0, 0.05); }
+        #reader__dashboard_section_csr button { background-color: #ec4899; color: white; border: none; padding: 12px 24px; border-radius: 1rem; font-weight: 800; cursor: pointer; transition: 0.2s; text-transform: uppercase; letter-spacing: 0.1em; font-size: 12px; }
+        #reader__dashboard_section_csr button:hover { background-color: #db2777; }
         #reader__scan_region img { object-fit: cover; border-radius: 2rem; }
       `}} />
 
       <header className="bg-white border-b border-slate-100 p-6 flex items-center gap-4 sticky top-0 z-10 shadow-sm">
-        <button onClick={() => safeNavigate('/admin')} className="p-2 hover:bg-rosa-50 text-slate-400 hover:text-rosa-600 rounded-xl transition-all">
-          <ArrowLeft size={24} />
+        <button onClick={() => safeNavigate('/admin')} className="p-3 bg-slate-50 hover:bg-rosa-50 text-slate-400 hover:text-rosa-600 rounded-2xl transition-all">
+          <ArrowLeft size={20} />
         </button>
         <div>
-          <h1 className="text-xl font-black text-slate-900 tracking-tight">Mostrador Dulce Sal</h1>
-          <p className="text-[10px] font-black uppercase text-rosa-400 tracking-widest leading-none mt-1">Suma de Puntos</p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight italic">Escanear Cliente</h1>
+          <p className="text-[10px] font-black uppercase text-rosa-400 tracking-widest leading-none mt-1">Suma de Puntos Dulce Sal</p>
         </div>
       </header>
 
@@ -181,10 +214,12 @@ export default function ScanPage() {
         <div className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-2 gap-8 items-stretch">
           
           {/* LADO IZQUIERDO: CÁMARA */}
-          <div className="bg-white p-8 md:p-10 rounded-[3rem] shadow-2xl shadow-slate-200/50 border border-slate-100 text-center animate-in zoom-in duration-500">
+          <div className="bg-white p-8 md:p-10 rounded-[3rem] shadow-xl shadow-slate-200/50 border border-slate-100 text-center">
             <div className="flex items-center justify-center gap-3 mb-8">
-              <Camera className="text-rosa-500" size={28} />
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Escanear Cliente</h2>
+              <div className="bg-rosa-50 p-3 rounded-2xl text-rosa-500">
+                <Camera size={24} />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Cámara Activa</h2>
             </div>
             
             <div className="w-full max-w-sm mx-auto mb-8 shadow-inner rounded-[2.5rem] overflow-hidden border-8 border-slate-50">
@@ -193,56 +228,60 @@ export default function ScanPage() {
 
             <div className="h-24 mb-6">
               {status.message ? (
-                <div className={`p-5 rounded-2xl flex items-start gap-4 border text-left animate-in slide-in-from-bottom-2 ${
+                <div className={`p-5 rounded-2xl flex items-center gap-4 border text-left ${
                   status.type === 'success' ? 'bg-emerald-50 border-emerald-100 text-emerald-800' : 
                   status.type === 'error' ? 'bg-red-50 border-red-100 text-red-800' : 
                   'bg-rosa-50 border-rosa-100 text-rosa-800'
                 }`}>
-                  {status.type === 'success' ? <CheckCircle2 className="shrink-0 text-emerald-500" size={22} /> : 
-                   status.type === 'error' ? <AlertCircle className="shrink-0 text-red-500" size={22} /> :
-                   <Loader2 className="animate-spin text-rosa-500" size={22} />
+                  {status.type === 'success' ? <CheckCircle2 className="shrink-0 text-emerald-500" size={24} /> : 
+                   status.type === 'error' ? <AlertCircle className="shrink-0 text-red-500" size={24} /> :
+                   <Loader2 className="animate-spin text-rosa-500 shrink-0" size={24} />
                   }
                   <p className="font-bold text-sm leading-tight">{status.message}</p>
                 </div>
               ) : (
                 <p className="text-slate-400 text-sm font-medium px-8 italic">
-                  Enfoca el código QR del cliente para procesar su visita automáticamente.
+                  Enfoca el código QR del cliente para sumar puntos y visitas automáticamente.
                 </p>
               )}
             </div>
 
-            <div className="pt-8 border-t border-slate-50">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-300 mb-4">Ingreso Manual</p>
+            <div className="pt-8 border-t border-slate-50 text-left">
+              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3 ml-2">Ingreso Manual</p>
               <form onSubmit={(e) => { e.preventDefault(); processScannedId(scannedId); }} className="flex gap-3">
                 <input
-                  type="text" placeholder="UID del cliente..."
-                  className="flex-1 px-5 py-4 bg-slate-50 border border-slate-200 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-mono text-xs"
+                  type="text" placeholder="Pega el ID del cliente..."
+                  className="flex-1 px-5 py-4 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-rosa-500 font-bold text-sm text-slate-700 transition-all"
                   value={scannedId} onChange={(e) => setScannedId(e.target.value)}
                 />
-                <button type="submit" className="bg-slate-900 text-white font-black px-6 py-4 rounded-2xl hover:bg-black transition-all active:scale-95">Sumar</button>
+                <button type="submit" className="bg-slate-900 text-white font-black px-6 py-4 rounded-2xl hover:bg-black transition-all active:scale-95 text-xs uppercase tracking-widest shadow-xl">
+                  Sumar
+                </button>
               </form>
             </div>
           </div>
 
           {/* LADO DERECHO: QR DE REGISTRO */}
-          <div className="bg-rosa-500 p-10 rounded-[3rem] shadow-2xl shadow-rosa-200/50 text-white flex flex-col items-center justify-center text-center relative overflow-hidden animate-in zoom-in duration-500 delay-150">
-            <div className="absolute -top-20 -right-20 w-80 h-80 bg-rosa-400 rounded-full blur-[100px] opacity-50"></div>
+          <div className="bg-rosa-500 p-10 rounded-[3rem] shadow-2xl shadow-rosa-200 text-white flex flex-col items-center justify-center text-center relative overflow-hidden">
+            <div className="absolute -top-20 -right-20 w-80 h-80 bg-white/10 rounded-full blur-3xl"></div>
             <div className="relative z-10 flex flex-col items-center">
-              <div className="bg-white/20 w-20 h-20 rounded-[2rem] flex items-center justify-center mb-6 backdrop-blur-md border border-white/30 shadow-xl">
+              <div className="bg-white/20 w-20 h-20 rounded-[2rem] flex items-center justify-center mb-6 backdrop-blur-md shadow-xl border border-white/20">
                 <UserPlus size={36} className="text-white" />
               </div>
-              <h2 className="text-3xl font-black mb-4 tracking-tighter italic">¿Cliente Nuevo?</h2>
-              <p className="text-rosa-50 text-sm font-medium leading-relaxed max-w-xs mb-10 opacity-90">
-                Pide que escaneen este código para unirse al programa VIP de Dulce Sal ahora mismo.
+              <h2 className="text-4xl font-black mb-4 tracking-tighter italic">¿Cliente Nuevo?</h2>
+              <p className="text-rosa-50 text-sm font-medium leading-relaxed max-w-xs mb-10">
+                Pide que escaneen este código desde sus celulares para unirse al programa VIP de Dulce Sal ahora mismo.
               </p>
-              <div className="bg-white p-6 rounded-[3rem] shadow-2xl transform hover:rotate-2 transition-transform duration-500 cursor-pointer">
+              <div className="bg-white p-6 rounded-[2.5rem] shadow-2xl">
                 {qrCodeUrl !== '#' ? (
-                  <img src={qrCodeUrl} alt="QR Registro" className="w-52 h-52 rounded-2xl" />
+                  <img src={qrCodeUrl} alt="QR Registro" className="w-56 h-56 rounded-2xl" />
                 ) : (
-                  <div className="w-52 h-52 bg-slate-50 animate-pulse rounded-2xl"></div>
+                  <div className="w-56 h-56 bg-slate-50 flex items-center justify-center rounded-2xl">
+                    <Loader2 className="animate-spin text-rosa-500" size={32} />
+                  </div>
                 )}
               </div>
-              <p className="mt-10 text-[10px] font-black uppercase tracking-[0.4em] text-rosa-200/60">Dulce Sal Loyalty</p>
+              <p className="mt-10 text-[10px] font-black uppercase tracking-[0.4em] text-white/50">Mostrador Dulce Sal</p>
             </div>
           </div>
 
