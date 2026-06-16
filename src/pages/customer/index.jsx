@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, doc, onSnapshot, collection, setDoc } from 'firebase/firestore';
+import { getFirestore, doc, onSnapshot, collection, setDoc, updateDoc } from 'firebase/firestore';
 import { getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { getMessaging, getToken } from 'firebase/messaging';
 import { Store, ArrowLeft, Heart, Award, Bell, BellRing, Sparkles, Megaphone } from 'lucide-react';
 
 // --- CONFIGURACIÓN DE FIREBASE ---
@@ -22,6 +23,9 @@ const appIdRaw = typeof __app_id !== 'undefined' ? __app_id : "dulce-sal-app";
 const appIdSaaS = appIdRaw.replace(/\//g, '_'); 
 const DULCE_SAL_ID = "dulce-sal-id"; 
 
+// --- TU LLAVE DE SEGURIDAD PUSH ---
+const VAPID_KEY = "BP0oUuWAELndsKXM8iG5j6NskfYtRC4brM81Kd-yXs33Oh6KQ0RO_1z5GPXYxk-a0ezpjXKSAGUQRqvFtERxcaA";
+
 // --- INYECTOR DE ESTILOS TAILWIND ---
 const TailwindStyleInjector = () => {
   useEffect(() => {
@@ -32,18 +36,9 @@ const TailwindStyleInjector = () => {
       document.head.appendChild(script);
       script.onload = () => {
         window.tailwind.config = {
-          theme: {
-            extend: {
-              colors: {
-                rosa: {
-                  50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8',
-                  300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899',
-                  600: '#db2777', 700: '#be185d', 800: '#9d174d',
-                  900: '#831843'
-                }
-              }
-            }
-          }
+          theme: { extend: { colors: {
+            rosa: { 50: '#fdf2f8', 100: '#fce7f3', 200: '#fbcfe8', 300: '#f9a8d4', 400: '#f472b6', 500: '#ec4899', 600: '#db2777', 700: '#be185d', 800: '#9d174d', 900: '#831843' }
+          }}}}
         };
       };
     }
@@ -55,15 +50,12 @@ export default function CustomerView() {
   const [user, setUser] = useState(null);
   const [card, setCard] = useState(null);
   const [rewards, setRewards] = useState([]);
-  const [campaigns, setCampaigns] = useState([]); // Nuevo estado para las promos
+  const [campaigns, setCampaigns] = useState([]);
   const [regData, setRegData] = useState({ name: '', phone: '' });
   const [notifPermission, setNotifPermission] = useState('default');
 
-  // Verificar estado de notificaciones al cargar
   useEffect(() => {
-    if ("Notification" in window) {
-      setNotifPermission(Notification.permission);
-    }
+    if ("Notification" in window) setNotifPermission(Notification.permission);
   }, []);
 
   useEffect(() => {
@@ -76,17 +68,14 @@ export default function CustomerView() {
     if (!user) return;
     const cardId = `${DULCE_SAL_ID}_${user.uid}`;
     
-    // Suscripción a la tarjeta
     const unsubCard = onSnapshot(doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId), (snap) => {
       if (snap.exists()) setCard(snap.data());
     });
     
-    // Suscripción a los premios
     const unsubRewards = onSnapshot(collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'rewards'), (snap) => {
       setRewards(snap.docs.map(d => ({id: d.id, ...d.data()})).filter(r => r.businessId === DULCE_SAL_ID));
     });
 
-    // Suscripción a las campañas (Promos)
     const unsubCampaigns = onSnapshot(collection(db, 'artifacts', appIdSaaS, 'public', 'data', 'campaigns'), (snap) => {
       const list = snap.docs
         .map(d => ({id: d.id, ...d.data()}))
@@ -107,23 +96,35 @@ export default function CustomerView() {
     });
   };
 
-  // Función para pedir permiso de notificaciones a Chrome/Safari
+  // LÓGICA DE REGISTRO PUSH
   const requestNotifications = async () => {
     if (!("Notification" in window)) {
-      alert("Tu navegador no soporta notificaciones.");
+      alert("Tu navegador no soporta notificaciones push.");
       return;
     }
     try {
       const permission = await Notification.requestPermission();
       setNotifPermission(permission);
+      
       if (permission === "granted") {
-        new Notification("¡Dulce Sal conectado!", {
-          body: "Te avisaremos cuando haya nuevos premios o promociones.",
-          icon: "https://cdn-icons-png.flaticon.com/512/838/838002.png"
-        });
+        const messaging = getMessaging(app);
+        // Obtenemos el token usando tu VAPID Key
+        const currentToken = await getToken(messaging, { vapidKey: VAPID_KEY });
+        
+        if (currentToken) {
+          // Si el cliente ya está registrado, guardamos su token en Firestore
+          if (card && user) {
+            const cardId = `${DULCE_SAL_ID}_${user.uid}`;
+            await updateDoc(doc(db, 'artifacts', appIdSaaS, 'public', 'data', 'loyalty_cards', cardId), {
+              fcmToken: currentToken
+            });
+          }
+          alert("¡Súper! Ya estás suscrito a las notificaciones de Dulce Sal.");
+        }
       }
     } catch (error) {
-      console.error("Error al pedir notificaciones", error);
+      console.error("Error al configurar notificaciones", error);
+      alert("Hubo un problema al activar las notificaciones. Asegúrate de dar los permisos en tu navegador.");
     }
   };
 
@@ -142,7 +143,6 @@ export default function CustomerView() {
           <span className="font-black text-slate-900 tracking-tighter text-xl italic">Dulce Sal</span>
         </div>
         
-        {/* Botón de Notificaciones en el Header */}
         <button 
           onClick={requestNotifications}
           className={`p-3 rounded-2xl shadow-sm transition-all ${
@@ -209,7 +209,7 @@ export default function CustomerView() {
             </div>
           </div>
 
-          {/* SECCIÓN DE PROMOS (NUEVA) */}
+          {/* SECCIÓN DE PROMOS */}
           <div className="space-y-4">
             <h4 className="text-xl font-black text-slate-900 flex items-center gap-2">
               <Megaphone className="text-rosa-500" size={24} /> Promos y Novedades
@@ -234,10 +234,9 @@ export default function CustomerView() {
               </div>
             )}
             
-            {/* Aviso para activar notificaciones si no las tiene */}
             {notifPermission !== 'granted' && (
               <button onClick={requestNotifications} className="w-full mt-2 bg-rosa-50 border border-rosa-100 text-rosa-600 px-6 py-4 rounded-2xl font-bold text-xs uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-rosa-100 transition-colors">
-                <BellRing size={16} /> Activar alertas en Chrome
+                <BellRing size={16} /> Activar alertas
               </button>
             )}
           </div>
